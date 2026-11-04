@@ -75,6 +75,23 @@ input,select,textarea{font-family:inherit}
 .btnrow .b.cancel{background:#3b1d24;color:#fda4af}
 .btnrow .b:disabled{opacity:.35;cursor:not-allowed}
 
+/* 이미지 노드 */
+.node.t-image{min-width:235px}
+.img-drop{border:1.5px dashed #2b3b53;border-radius:10px;padding:14px 10px;text-align:center;cursor:pointer;transition:.15s;background:#0b1220}
+.img-drop:hover,.img-drop.drag{border-color:#fb923c;background:#131a26}
+.img-drop .ic{font-size:26px;line-height:1}
+.img-drop .t1{font-size:12px;font-weight:700;color:#c3d0e2;margin-top:5px}
+.img-drop .t2{font-size:10.5px;color:var(--sub);margin-top:3px;line-height:1.55}
+.img-thumb{display:none;border-radius:10px;overflow:hidden;border:1px solid #2b3b53;background:#0b1220}
+.img-thumb img{display:block;width:100%;height:auto;cursor:zoom-in}
+.img-meta{display:none;justify-content:space-between;align-items:center;gap:8px;font-size:10.5px;color:var(--sub);padding:5px 1px 0}
+.img-meta .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.img-actions{display:none;gap:6px;margin-top:6px}
+.img-actions .b{flex:1;border-radius:8px;border:none;padding:6px 0;font-size:11.5px;font-weight:700;background:#1b2940;color:var(--txt);cursor:pointer;transition:.15s}
+.img-actions .b:hover{background:#26375a}
+.ref-chip{display:none;font-size:11px;color:#fdba74;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.3);border-radius:8px;padding:5px 8px;margin-top:6px;line-height:1.5}
+.ref-chip.on{display:block}
+
 /* ===== 우측 패널 ===== */
 #side{width:284px;flex:none;background:var(--panel2);border-left:1px solid var(--line);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px}
 .sec{background:#101a2a;border:1px solid var(--line);border-radius:12px;padding:14px}
@@ -199,9 +216,10 @@ input,select,textarea{font-family:inherit}
       <h3>🧭 사용 흐름</h3>
       <div class="note">
         ① 텍스트 노드에 그릴 내용 입력<br>
-        ② 스타일·보정 노드를 <b>조합</b> 노드로 연결<br>
-        ③ 조합 결과를 <b>생성</b> 노드에 연결<br>
-        ④ 생성 노드의 <b style="color:#5eead4">생성</b> 버튼 클릭!<br>
+        ② 🖼 이미지 노드로 참조 이미지 추가 (클릭 업로드 · 드래그 · Ctrl+V)<br>
+        ③ 스타일·보정·이미지 노드를 <b>조합</b> 노드로 연결<br>
+        ④ 조합 결과를 <b>생성</b> 노드에 연결<br>
+        ⑤ 생성 노드의 <b style="color:#5eead4">생성</b> 버튼 클릭!<br>
         <span style="opacity:.75">워크플로는 자동 저장되어 다음에 그대로 열립니다.</span>
       </div>
     </div>
@@ -261,6 +279,13 @@ const ENHANCE_MAP = {
 };
 
 // ---------- 노드 정의 ----------
+const IMG_MODES = ['참조 (스타일·구도)', '인물 유지', '부분 편집 (나머지 유지)'];
+const IMG_MODE_HINTS = {
+  '참조 (스타일·구도)': 'A reference image is attached. Use it as a visual reference: follow its overall composition, style and mood.',
+  '인물 유지': 'A reference photo of a person is attached. Preserve their exact identity, facial features and appearance faithfully.',
+  '부분 편집 (나머지 유지)': 'Edit the attached image according to the instructions. Change only what is requested and keep everything else exactly unchanged.',
+};
+
 const NODE_DEFS = {
   text: {
     title: '📝 텍스트', color: '#5eead4', inputs: 0, outputs: 1,
@@ -287,6 +312,53 @@ const NODE_DEFS = {
       return [sel, ex];
     },
     eval: n => [STYLE_MAP[n.props.style] || '', (n.props.extra || '').trim()].filter(Boolean).join(', '),
+  },
+  image: {
+    title: '🖼 이미지', color: '#fb923c', inputs: 0, outputs: 1,
+    defaults: { src: '', name: '', w: 0, h: 0, mode: '참조 (스타일·구도)' },
+    body(n) {
+      const sel = el('select');
+      IMG_MODES.forEach(k => { const o = el('option'); o.value = k; o.textContent = k; sel.appendChild(o); });
+      sel.value = n.props.mode;
+      sel.addEventListener('change', () => { n.props.mode = sel.value; schedule(); updatePreviews(); });
+
+      const fi = el('input'); fi.type = 'file'; fi.accept = 'image/png,image/jpeg,image/webp'; fi.style.display = 'none';
+      const drop = el('div', 'img-drop', '<div class="ic">🖼</div><div class="t1">클릭해서 이미지 추가</div><div class="t2">PNG · JPG · WebP<br>끌어다 놓기 · Ctrl+V 붙여넣기도 가능</div>');
+      const thumb = el('div', 'img-thumb'); const tim = el('img'); thumb.appendChild(tim);
+      thumb.addEventListener('click', () => { if (n.props.src) openImageModal(n.props.src); });
+      const meta = el('div', 'img-meta'); const nm = el('span', 'nm');
+      meta.append(nm);
+      const actions = el('div', 'img-actions');
+      const rep = el('button', 'b', '🔁 교체'); const del = el('button', 'b', '🗑 제거');
+      actions.append(rep, del);
+
+      function renderInfo() {
+        const has = !!n.props.src;
+        drop.style.display = has ? 'none' : '';
+        thumb.style.display = has ? 'block' : 'none';
+        meta.style.display = has ? 'flex' : 'none';
+        actions.style.display = has ? 'flex' : 'none';
+        if (has) { tim.src = n.props.src; nm.textContent = `${n.props.name || 'image'} · ${n.props.w}×${n.props.h}`; }
+      }
+      async function applyFile(file) {
+        try {
+          const d = await loadImageFile(file);
+          n.props.src = d.src; n.props.name = file.name || 'image'; n.props.w = d.w; n.props.h = d.h;
+          renderInfo(); schedule(); updatePreviews();
+          toast('이미지가 추가됐어요! 생성 노드에 연결하면 참조로 사용됩니다.', 'ok');
+        } catch (err) { toast('이미지 추가 실패: ' + err.message, 'err'); }
+      }
+      drop.addEventListener('click', () => fi.click());
+      rep.addEventListener('click', () => fi.click());
+      fi.addEventListener('change', () => { if (fi.files && fi.files[0]) applyFile(fi.files[0]); fi.value = ''; });
+      del.addEventListener('click', () => { n.props.src = ''; n.props.name = ''; n.props.w = 0; n.props.h = 0; renderInfo(); schedule(); updatePreviews(); });
+      ;['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); drop.classList.add('drag'); }));
+      ;['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('drag'); }));
+      drop.addEventListener('drop', e => { const f = [...(e.dataTransfer.files || [])][0]; if (f) applyFile(f); });
+      renderInfo();
+      return [sel, drop, thumb, meta, actions, fi];
+    },
+    eval: n => n.props.src ? (IMG_MODE_HINTS[n.props.mode] || '') : '',
   },
   enhance: {
     title: '✨ 보정', color: '#fbbf24', inputs: 1, outputs: 1,
@@ -315,6 +387,7 @@ const NODE_DEFS = {
     defaults: {},
     body(n) {
       const pv = el('div', 'prompt-preview'); pv.dataset.role = 'preview';
+      const rf = el('div', 'ref-chip'); rf.dataset.role = 'ref';
       const st = el('div', 'g-status'); st.dataset.role = 'status'; st.textContent = '대기 중';
       const gi = el('div', 'g-img'); gi.dataset.role = 'img';
       const img = el('img'); gi.appendChild(img);
@@ -327,8 +400,8 @@ const NODE_DEFS = {
       cx.addEventListener('click', () => { if (n._ctrl) n._ctrl.abort(); });
       dl.addEventListener('click', () => { if (n.props.img) downloadDataUrl(n.props.img, `gpt-image-${n.id}-${Date.now()}.png`); });
       row.append(go, cx, dl);
-      n._els = { pv, st, gi, img, go, cx, dl };
-      return [pv, st, gi, row];
+      n._els = { pv, rf, st, gi, img, go, cx, dl };
+      return [pv, rf, st, gi, row];
     },
     eval: (n, ins) => ins[0] || '',
   },
@@ -443,9 +516,66 @@ function genPrompt(node) {
   return l ? evalNode(l.from.node, new Set()) : '';
 }
 
+function collectImages(node, stack = new Set()) {
+  if (stack.has(node.id)) return [];
+  stack.add(node.id);
+  const def = NODE_DEFS[node.type];
+  const out = [];
+  for (let i = 0; i < def.inputs; i++) {
+    const l = links.find(l => l.to.node === node.id && l.to.index === i);
+    if (!l) continue;
+    const src = byId(l.from.node);
+    if (!src) continue;
+    if (src.type === 'image') { if (src.props.src) out.push(src); }
+    else out.push(...collectImages(src, stack));
+  }
+  return out;
+}
+
+function loadImageFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { reject(new Error('PNG · JPG · WebP 이미지만 지원합니다.')); return; }
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 2048;
+        if (img.width <= MAX && img.height <= MAX && file.size <= 4 * 1024 * 1024) {
+          resolve({ src: fr.result, w: img.width, h: img.height }); return;
+        }
+        const sc = Math.min(1, MAX / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(img.width * sc)); cv.height = Math.max(1, Math.round(img.height * sc));
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        resolve({ src: cv.toDataURL(type, 0.92), w: cv.width, h: cv.height });
+      };
+      img.onerror = () => reject(new Error('이미지를 읽을 수 없습니다.'));
+      img.src = fr.result;
+    };
+    fr.onerror = () => reject(new Error('파일을 읽을 수 없습니다.'));
+    fr.readAsDataURL(file);
+  });
+}
+
+function dataUrlToBlob(u) {
+  const parts = u.split(',');
+  const mime = ((parts[0].match(/data:([^;]+)/) || [])[1]) || 'image/png';
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
 function updatePreviews() {
   nodes.filter(n => n.type === 'generate' && n._els).forEach(n => {
     n._els.pv.textContent = genPrompt(n) || '(입력이 연결되지 않았습니다)';
+    const imgs = collectImages(n);
+    n._els.rf.classList.toggle('on', imgs.length > 0);
+    if (imgs.length) {
+      const warn = settings.model === 'dall-e-3' ? ' ⚠️ DALL·E 3는 이미지 입력 불가 — GPT Image 계열을 선택해 주세요' : '';
+      n._els.rf.textContent = `🖼 참조 이미지 ${imgs.length}장 연결됨${warn}`;
+    }
   });
 }
 
@@ -585,6 +715,36 @@ canvas.addEventListener('contextmenu', e => {
 });
 document.addEventListener('pointerdown', e => { if (!e.target.closest('#ctxmenu')) hideCtx(); });
 function hideCtx() { ctx.style.display = 'none'; }
+
+// ---------- 이미지 드래그앤드롭 / 붙여넣기 ----------
+canvas.addEventListener('dragover', e => e.preventDefault());
+canvas.addEventListener('drop', async e => {
+  e.preventDefault();
+  const f = [...(e.dataTransfer.files || [])].find(x => /^image\//.test(x.type));
+  if (!f) return;
+  try {
+    const d = await loadImageFile(f);
+    const w = screenToWorld(e.clientX, e.clientY);
+    addNode('image', Math.round(w.x - 110), Math.round(w.y - 100), { src: d.src, name: f.name || 'image', w: d.w, h: d.h });
+    toast('이미지 노드를 추가했어요! 생성 노드(또는 조합 노드)에 연결해 주세요.', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.addEventListener('paste', async e => {
+  if (e.target && e.target.closest && e.target.closest('input,textarea,select')) return;
+  const item = [...((e.clipboardData && e.clipboardData.items) || [])].find(i => i.type && i.type.startsWith('image/'));
+  if (!item) return;
+  const f = item.getAsFile();
+  if (!f) return;
+  e.preventDefault();
+  try {
+    const d = await loadImageFile(f);
+    const wx = Math.round((-view.x + (window.innerWidth - 340) / 2) / view.z);
+    const wy = Math.round((-view.y + (window.innerHeight - 180) / 2) / view.z);
+    addNode('image', wx, wy, { src: d.src, name: f.name || '붙여넣은 이미지', w: d.w, h: d.h });
+    toast('붙여넣은 이미지로 노드를 추가했어요!', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+});
 
 // ---------- 설정 패널 ----------
 const MODELS = [
@@ -748,31 +908,60 @@ async function runGenerate(node) {
   if (!key) { toast('먼저 우측 패널에 OpenAI API 키를 입력해 주세요.', 'err'); return; }
   const prompt = genPrompt(node);
   if (!prompt.trim()) { toast('프롬프트가 비어 있어요. 텍스트 노드를 연결하고 내용을 입력해 주세요.', 'err'); return; }
+  const imgs = collectImages(node).slice(0, 10);
+  if (imgs.length && !settings.model.startsWith('gpt-image')) {
+    toast('DALL·E 3는 이미지 입력(편집)을 지원하지 않아요. 모델을 GPT Image 계열로 바꿔 주세요.', 'err');
+    return;
+  }
 
   const els = node._els;
   els.go.disabled = true; els.go.textContent = '생성 중…'; els.dl.style.display = 'none'; els.cx.style.display = '';
   els.st.className = 'g-status run';
   const ctrl = new AbortController(); node._ctrl = ctrl;
   const t0 = Date.now();
-  const timer = setInterval(() => { els.st.textContent = `⏳ 생성 중… ${Math.round((Date.now() - t0) / 1000)}초 (고품질은 30~90초 걸릴 수 있어요)`; }, 500);
+  const refNote = imgs.length ? ` · 🖼 참조 ${imgs.length}장` : '';
+  const timer = setInterval(() => { els.st.textContent = `⏳ 생성 중… ${Math.round((Date.now() - t0) / 1000)}초${refNote} (고품질은 30~90초 걸릴 수 있어요)`; }, 500);
   els.st.textContent = '⏳ 생성 중…';
 
   try {
-    const body = { model: settings.model, prompt };
-    if (settings.model.startsWith('gpt-image')) {
-      body.size = settings.size; body.quality = settings.quality; body.n = settings.n;
-      if (settings.transparent) body.background = 'transparent';
+    let res;
+    if (imgs.length) {
+      // 이미지 편집 API — 참조 이미지 첨부
+      const fd = new FormData();
+      fd.append('model', settings.model);
+      fd.append('prompt', prompt);
+      if (settings.size !== 'auto') fd.append('size', settings.size);
+      if (settings.quality !== 'auto') fd.append('quality', settings.quality);
+      fd.append('n', String(settings.n));
+      if (settings.transparent) fd.append('background', 'transparent');
+      imgs.forEach((im, i) => {
+        const blob = dataUrlToBlob(im.props.src);
+        const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+        fd.append('image[]', blob, `ref-${i + 1}.${ext}`);
+      });
+      res = await fetch('https://api.openai.com/v1/images/edits', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + key },
+        body: fd,
+        signal: ctrl.signal,
+      });
     } else {
-      body.size = settings.size; body.n = 1;
-      body.quality = settings.quality === 'hd' ? 'hd' : 'standard';
-      body.response_format = 'b64_json';
+      const body = { model: settings.model, prompt };
+      if (settings.model.startsWith('gpt-image')) {
+        body.size = settings.size; body.quality = settings.quality; body.n = settings.n;
+        if (settings.transparent) body.background = 'transparent';
+      } else {
+        body.size = settings.size; body.n = 1;
+        body.quality = settings.quality === 'hd' ? 'hd' : 'standard';
+        body.response_format = 'b64_json';
+      }
+      res = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
     }
-    const res = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error((j.error && j.error.message) || ('HTTP ' + res.status));
     const b64 = j.data && j.data[0] && j.data[0].b64_json;
@@ -845,10 +1034,11 @@ $('#btnHelp').addEventListener('click', () => {
       <b>1. API 키 입력</b> — <a href="https://platform.openai.com/api-keys" target="_blank" style="color:#38bdf8">platform.openai.com/api-keys</a> 에서 발급 후 우측 패널에 붙여넣으세요. 이미지 생성은 유료입니다.<br><br>
       <b>2. 노드 연결</b> — 캔버스 <span class="kb">우클릭</span>으로 노드 추가, 노드 가장자리의 <b>점(포트)</b>을 드래그해 다른 노드의 점에 놓으면 연결됩니다. 예: 텍스트 → 조합, 스타일 → 조합, 조합 → 생성.<br><br>
       <b>3. 생성</b> — 생성 노드의 <b>⚡ 생성</b> 버튼을 누르면 연결된 프롬프트가 조합되어 GPT 이미지 API로 전송됩니다. 결과는 노드 안에 표시되고 클릭하면 크게 볼 수 있어요.<br><br>
-      <b>4. 조작</b> — 빈 캔버스 <span class="kb">드래그</span> = 이동 · <span class="kb">휠</span> = 확대/축소 · 노드 선택 후 <span class="kb">Delete</span> = 삭제 · 연결선 <span class="kb">더블클릭</span> = 연결 해제.<br><br>
-      <b>5. 저장</b> — 워크플로는 자동 저장되며, 상단 <b>💾 저장</b>으로 JSON 파일 내보내기/불러오기도 가능합니다.
+      <b>4. 참조 이미지</b> — <b>🖼 이미지 노드</b>(우클릭 메뉴)에 사진을 올리세요. 클릭 업로드 · 캔버스에 드래그 · <span class="kb">Ctrl+V</span> 모두 지원됩니다. 역할(참조 / 인물 유지 / 부분 편집)을 고르고 생성 노드나 조합 노드에 연결하면, 생성 시 <b>이미지 편집 API</b>로 함께 전송돼요 (DALL·E 3는 이미지 입력 불가).<br><br>
+      <b>5. 조작</b> — 빈 캔버스 <span class="kb">드래그</span> = 이동 · <span class="kb">휠</span> = 확대/축소 · 노드 선택 후 <span class="kb">Delete</span> = 삭제 · 연결선 <span class="kb">더블클릭</span> = 연결 해제.<br><br>
+      <b>6. 저장</b> — 워크플로는 자동 저장되며, 상단 <b>💾 저장</b>으로 JSON 파일 내보내기/불러오기도 가능합니다. 업로드 이미지가 지나치게 크면 자동 저장에서만 제외돼요.
       <br><br>
-      <b>6. 계정 진단</b> — 우측 <b>🔎 계정 · 요금 진단</b> 버튼으로 키 유효성, 이미지 모델 접근 권한, 최근 30일 사용액을 확인하고 사용 가능한 모델을 자동으로 선택하세요. 생성 전마다 예상 비용과 세션 누적 지출이 표시됩니다.
+      <b>7. 계정 진단</b> — 우측 <b>🔎 계정 · 요금 진단</b> 버튼으로 키 유효성, 이미지 모델 접근 권한, 최근 30일 사용액을 확인하고 사용 가능한 모델을 자동으로 선택하세요. 생성 전마다 예상 비용과 세션 누적 지출이 표시됩니다.
     </div>`);
 });
 
@@ -879,11 +1069,25 @@ function cleanProps(n) {
 }
 
 function saveSchedule() {
-  localStorage.setItem('gins-workflow', JSON.stringify({
+  const data = {
     version: 1, nextId, view,
     nodes: nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, props: cleanProps(n) })),
     links,
-  }));
+  };
+  try {
+    localStorage.setItem('gins-workflow', JSON.stringify(data));
+  } catch (e) {
+    // 용량 초과 시 업로드 이미지(src)만 제외하고 저장
+    try {
+      const slim = JSON.parse(JSON.stringify(data));
+      slim.nodes.forEach(nd => { if (nd.props && nd.props.src) delete nd.props.src; });
+      localStorage.setItem('gins-workflow', JSON.stringify(slim));
+      if (!saveSchedule._warned) {
+        saveSchedule._warned = true;
+        toast('업로드한 이미지가 커서 자동 저장에서는 제외했어요. 새로고침하면 다시 추가해 주세요.', 'err');
+      }
+    } catch (e2) { /* 저장 불가 환경 */ }
+  }
 }
 
 function schedule() {

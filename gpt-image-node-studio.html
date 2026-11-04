@@ -122,6 +122,7 @@ input,select,textarea{font-family:inherit}
 .command-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .command-actions button{border:none;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:700;background:#1b2940;color:var(--txt)}
 .command-actions button.primary{background:linear-gradient(135deg,#14b8a6,#0ea5e9);color:#04121d}
+.share-meta{font-size:11.5px;color:var(--sub);background:#0b1220;border:1px solid #243247;border-radius:8px;padding:8px 10px;line-height:1.6;margin-top:8px}
 
 /* ===== 오버레이 ===== */
 #hintbar{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(13,20,32,.85);border:1px solid var(--line);border-radius:20px;padding:7px 16px;font-size:11.5px;color:var(--sub);backdrop-filter:blur(6px);white-space:nowrap;pointer-events:none}
@@ -175,6 +176,7 @@ input,select,textarea{font-family:inherit}
   <button class="tbtn" id="btnSave">💾 저장</button>
   <button class="tbtn" id="btnLoad">📂 불러오기</button>
   <button class="tbtn" id="btnReset">🔄 초기화</button>
+  <button class="tbtn primary" id="btnShareLink">🔗 GPT 링크 복사</button>
   <button class="tbtn" id="btnHelp">❓ 도움말</button>
 </div>
 
@@ -194,8 +196,9 @@ input,select,textarea{font-family:inherit}
       <h3>🤖 ChatGPT 앱 연동</h3>
       <div class="gpt-state" id="webmcpState">⏳ Site tools 연결 상태 확인 중…</div>
       <button class="tbtn primary" id="btnGptAll" style="width:100%;padding:10px;margin-top:10px">🤖 GPT앱으로 명령하기</button>
+      <button class="tbtn" id="btnShareSide" style="width:100%;padding:9px;margin-top:8px">🔗 노드 상태 링크 만들기</button>
       <div class="note" style="margin-top:8px">API 키 없이, 지금 노드 구성을 ChatGPT 앱이 읽을 수 있는 명령으로 만들어 줘요. 버튼을 누르면 명령이 자동 복사돼.</div>
-      <div class="note" style="margin-top:6px">ChatGPT 데스크톱 내장 브라우저에서는 <b>Site tools</b>의 <span style="font-family:Consolas,monospace">build_image_prompt</span> 도구도 같은 데이터를 반환해요.</div>
+      <div class="note" style="margin-top:6px">링크에는 노드 설정과 참조 이미지(크기를 줄여서)가 함께 들어가. ChatGPT 데스크톱 내장 브라우저에서는 <b>Site tools</b>의 <span style="font-family:Consolas,monospace">build_image_prompt</span>·<span style="font-family:Consolas,monospace">get_reference_assets</span> 도구도 같은 데이터를 반환해요.</div>
     </div>
 
     <div class="sec">
@@ -696,6 +699,8 @@ function promptBundleToCommand(bundle) {
     '[GPT Image Node Studio — 이미지 생성 요청]',
     '아래 노드 워크플로를 읽고 이미지를 생성해 줘.',
     '',
+    bundle.shareLink ? `노드스튜디오 링크: ${bundle.shareLink}` : '',
+    bundle.shareLink ? '이 링크를 열면 현재 노드 설정과 참조 이미지가 그대로 로드돼. 내장 브라우저에서 열 수 있다면 Site tools 도구로도 확인해 줘.' : '',
     `대상/캐릭터: ${s.subject || '(비어 있음 — 추가 지시와 참조 이미지 맥락으로 자연스럽게 판단)'}`,
     `스타일: ${s.style || '(비어 있음 — 이미지 용도에 맞게 자연스럽게 선택)'}`,
     `연출/구도/조명: ${s.direction || '(비어 있음 — 대상에 어울리는 연출을 자동 제안)'}`,
@@ -712,7 +717,164 @@ function promptBundleToCommand(bundle) {
     bundle.warnings.forEach(x => lines.push(`- ${x}`));
   }
   lines.push('', '영어 프롬프트:', bundle.imagePrompt);
-  return lines.join('\n');
+  return lines.filter(x => x !== '').join('\n');
+}
+
+// ---------- 노드 상태 링크 ----------
+const SHARE_URL_LIMIT = 180000;
+const SHARE_IMAGE_MAX = 512;
+const SHARE_IMAGE_MAX_COUNT = 4;
+let latestShareLink = '';
+
+function bytesToBase64Url(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlToBytes(value) {
+  const b64 = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4);
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function pipeBytes(bytes, transformer) {
+  const stream = new Blob([bytes]).stream().pipeThrough(transformer);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function encodeSharePayload(data) {
+  const json = JSON.stringify(data);
+  const raw = new TextEncoder().encode(json);
+  if (typeof CompressionStream === 'function') {
+    try {
+      const packed = await pipeBytes(raw, new CompressionStream('deflate-raw'));
+      return 'z1' + bytesToBase64Url(packed);
+    } catch (e) {}
+  }
+  return 'u1' + bytesToBase64Url(raw);
+}
+
+async function decodeSharePayload(payload) {
+  if (payload.length < 3) throw new Error('링크 데이터가 너무 짧아요.');
+  const prefix = payload.slice(0, 2), body = payload.slice(2);
+  let bytes = base64UrlToBytes(body);
+  if (prefix === 'z1') {
+    if (typeof DecompressionStream !== 'function') throw new Error('이 브라우저는 압축 링크를 풀 수 없어요.');
+    bytes = await pipeBytes(bytes, new DecompressionStream('deflate-raw'));
+  } else if (prefix !== 'u1') throw new Error('지원하지 않는 링크 형식이에요.');
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error('참조 이미지를 다시 만들 수 없어요.'));
+    im.src = src;
+  });
+}
+
+async function shrinkReferenceForLink(dataUrl) {
+  const im = await loadImageElement(dataUrl);
+  const scale = Math.min(1, SHARE_IMAGE_MAX / Math.max(im.width || 1, im.height || 1));
+  const w = Math.max(1, Math.round((im.width || 1) * scale));
+  const h = Math.max(1, Math.round((im.height || 1) * scale));
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ct = cv.getContext('2d');
+  if (ct) { ct.fillStyle = '#ffffff'; ct.fillRect(0, 0, w, h); }
+  cv.getContext('2d').drawImage(im, 0, 0, w, h);
+  return { src: cv.toDataURL('image/jpeg', 0.74), w, h };
+}
+
+function workflowForShare() {
+  return {
+    version: 2,
+    nextId,
+    view,
+    nodes: nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, props: cleanProps(n) })),
+    links,
+  };
+}
+
+async function buildShareLink(options = {}) {
+  const includeImages = options.includeImages !== false;
+  const data = workflowForShare();
+  let includedImageCount = 0, omittedImageCount = 0;
+  const imageNodes = data.nodes.filter(n => n.type === 'image' && n.props.src).slice(0, SHARE_IMAGE_MAX_COUNT);
+  if (includeImages) {
+    for (const node of imageNodes) {
+      try {
+        const small = await shrinkReferenceForLink(node.props.src);
+        node.props.src = small.src;
+        node.props.w = small.w;
+        node.props.h = small.h;
+        includedImageCount++;
+      } catch (e) { omittedImageCount++; delete node.props.src; }
+    }
+  } else {
+    data.nodes.filter(n => n.type === 'image').forEach(n => { if (n.props.src) { delete n.props.src; omittedImageCount++; } });
+  }
+  const payload = await encodeSharePayload(data);
+  const url = location.origin + location.pathname + '#w=' + payload;
+  return {
+    url,
+    length: url.length,
+    fit: url.length <= SHARE_URL_LIMIT,
+    includedImageCount,
+    omittedImageCount,
+    compressed: payload.startsWith('z1'),
+  };
+}
+
+function sanitizeSharedWorkflow(data) {
+  if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.links)) return null;
+  if (data.nodes.length > 120 || data.links.length > 300) return null;
+  const ids = new Set();
+  const nodes = [];
+  data.nodes.forEach(n => {
+    if (!n || typeof n.id !== 'string' || ids.has(n.id)) return;
+    const def = NODE_DEFS[n.type]; if (!def) return;
+    const props = {};
+    Object.entries(n.props || {}).forEach(([k, v]) => {
+      if (!Object.prototype.hasOwnProperty.call(def.defaults, k)) return;
+      if (typeof v === 'string') props[k] = k === 'src' ? v.slice(0, 1200000) : v.slice(0, 20000);
+      else if (typeof v === 'number' && Number.isFinite(v)) props[k] = v;
+      else if (typeof v === 'boolean') props[k] = v;
+      else if (v && typeof v === 'object' && k === 'checks') {
+        const checks = {};
+        Object.entries(v).forEach(([ck, cv]) => { if (Object.prototype.hasOwnProperty.call(ENHANCE_MAP, ck) && typeof cv === 'boolean') checks[ck] = cv; });
+        props[k] = checks;
+      }
+    });
+    Object.keys(def.defaults).forEach(k => { if (props[k] === undefined) props[k] = structuredClone(def.defaults[k]); });
+    ids.add(n.id);
+    nodes.push({ id: n.id, type: n.type, x: Number.isFinite(+n.x) ? +n.x : 0, y: Number.isFinite(+n.y) ? +n.y : 0, props });
+  });
+  const links = data.links.filter(l => l && l.from && l.to && ids.has(l.from.node) && ids.has(l.to.node))
+    .map(l => ({ id: String(l.id || 'l' + Math.random().toString(36).slice(2)), from: { node: l.from.node, index: Math.max(0, +l.from.index || 0) }, to: { node: l.to.node, index: Math.max(0, +l.to.index || 0) } }));
+  return { version: 2, nextId: Number.isFinite(+data.nextId) ? +data.nextId : 1, view: data.view && Number.isFinite(+data.view.z) ? data.view : { x: 40, y: 30, z: 1 }, nodes, links };
+}
+
+async function loadSharedWorkflowFromHash() {
+  const match = location.hash.match(/^#w=([A-Za-z0-9_-]+)/);
+  if (!match) return false;
+  try {
+    const raw = await decodeSharePayload(match[1]);
+    const safe = sanitizeSharedWorkflow(raw);
+    if (!safe) throw new Error('링크의 노드 데이터가 올바르지 않아요.');
+    loadWorkflow(safe);
+    history.replaceState(null, '', location.pathname + location.search);
+    toast('링크에 저장된 노드 워크플로를 불러왔어요!', 'ok');
+    return true;
+  } catch (e) {
+    toast('링크 불러오기 실패: ' + e.message, 'err');
+    return false;
+  }
 }
 
 function loadImageFile(file) {
@@ -988,6 +1150,24 @@ function setWebmcpState(kind, title, sub) {
   elx.innerHTML = `${title}${sub ? `<span class="sub">${sub}</span>` : ''}`;
 }
 
+async function addShareLinkToBundle(bundle, options = {}) {
+  let share = await buildShareLink({ includeImages: options.includeImages !== false });
+  if (!share.fit) {
+    const withoutImages = await buildShareLink({ includeImages: false });
+    if (withoutImages.fit) share = withoutImages;
+  }
+  if (!share.fit) {
+    bundle.warnings.push(`공유 링크가 너무 깁니다(${share.length}자). 텍스트 노드 수를 줄이거나 이미지 없이 다시 시도해 주세요.`);
+  } else {
+    bundle.shareLink = share.url;
+    bundle.share = { length: share.length, includedImageCount: share.includedImageCount, omittedImageCount: share.omittedImageCount, compressed: share.compressed };
+    if (share.omittedImageCount) bundle.warnings.push(`참조 이미지 ${share.omittedImageCount}장은 링크 크기 제한으로 포함되지 않았어요.`);
+    latestShareLink = share.url;
+  }
+  bundle.command = promptBundleToCommand(bundle);
+  return bundle;
+}
+
 async function registerWebMcpTools() {
   const mc = (document.modelContext && typeof document.modelContext.registerTool === 'function' && document.modelContext)
     || (navigator.modelContext && typeof navigator.modelContext.registerTool === 'function' && navigator.modelContext)
@@ -999,9 +1179,21 @@ async function registerWebMcpTools() {
   const defs = [
     {
       name: 'get_current_workflow', title: '현재 노드 워크플로 조회',
-      description: 'GPT Image Node Studio의 현재 노드, 설정값, 연결 관계를 반환합니다.',
-      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-      execute: async () => currentWorkflowData(),
+      description: 'GPT Image Node Studio의 현재 노드, 설정값, 연결 관계를 반환합니다. includeShareLink=true이면 노드 상태가 들어 있는 공유 링크도 반환합니다.',
+      inputSchema: {
+        type: 'object',
+        properties: { includeShareLink: { type: 'boolean', description: '노드 상태 공유 링크 포함 여부. 기본값 false' } },
+        additionalProperties: false,
+      },
+      execute: async input => {
+        const data = currentWorkflowData();
+        if (input && input.includeShareLink) {
+          const share = await buildShareLink({ includeImages: true });
+          data.shareLink = share.url;
+          data.share = share;
+        }
+        return data;
+      },
     },
     {
       name: 'build_image_prompt', title: '이미지 생성 프롬프트 생성',
@@ -1009,14 +1201,17 @@ async function registerWebMcpTools() {
       inputSchema: {
         type: 'object',
         properties: {
-          targetId: { type: 'string', description: '대상 GPT 명령 노드 ID (예: n7). 생략 가능)' },
+        targetId: { type: 'string', description: '대상 GPT 명령 노드 ID (예: n7). 생략 가능)' },
+        includeShareLink: { type: 'boolean', description: '노드 상태 공유 링크를 명령에 포함할지 여부. 기본값 true' },
         },
         additionalProperties: false,
       },
       execute: async input => {
         const target = input && input.targetId ? byId(input.targetId) : nodes.find(n => n.type === 'generate');
         if (!target || target.type !== 'generate') return { ok: false, error: '유효한 GPT 명령 노드를 찾을 수 없습니다.' };
-        return buildPromptBundle(target);
+        const bundle = buildPromptBundle(target);
+        if (!input || input.includeShareLink !== false) await addShareLinkToBundle(bundle);
+        return bundle;
       },
     },
     {
@@ -1078,9 +1273,11 @@ function commandHistoryCard(h) {
 function openCommandModal(bundle) {
   openModal(`
     <h2>🤖 GPT앱으로 명령하기</h2>
-    <div class="help" style="margin-bottom:10px">아래 명령을 ChatGPT 앱 대화창에 붙여넣어 보내요. 이 페이지를 ChatGPT 데스크톱 내장 브라우저에서 열었다면, Site tools의 <b>build_image_prompt</b>·<b>get_reference_assets</b>도 같은 데이터를 읽을 수 있어요.</div>
+    <div class="help" style="margin-bottom:10px">아래 명령을 ChatGPT 앱 대화창에 붙여넣어 보내요. 노드 상태 링크가 포함되면, ChatGPT가 링크를 열어 현재 워크플로와 참조 이미지를 읽을 수 있어요.</div>
+    ${bundle.share ? `<div class="share-meta">🔗 노드 상태 링크 포함 · ${bundle.share.length.toLocaleString()}자 · 이미지 ${bundle.share.includedImageCount}장 포함${bundle.share.omittedImageCount ? ` · ${bundle.share.omittedImageCount}장 제외` : ''} · ${bundle.share.compressed ? '압축됨' : '비압축'}</div>` : '<div class="share-meta">⚠️ 노드 상태 링크를 만들지 못했어요. 아래 텍스트 명령은 그대로 사용할 수 있어요.</div>'}
     <textarea class="command-box" readonly></textarea>
     <div class="command-actions">
+      ${bundle.shareLink ? '<button data-copy-link-only>🔗 링크만 복사</button>' : ''}
       <button data-command-copy>📋 명령 복사</button>
       <button class="primary" data-command-close>✅ 완료</button>
     </div>`);
@@ -1093,12 +1290,17 @@ $('#modalBox').addEventListener('click', async e => {
     const ok = await copyText($('#modalBox textarea.command-box').value);
     toast(ok ? '명령을 복사했어요! ChatGPT 앱에 붙여넣어 보내세요.' : '자동 복사 실패 — 명령창을 직접 선택해 복사해 주세요.', ok ? 'ok' : 'err');
   }
+  if (e.target.closest('[data-copy-link-only]')) {
+    const ok = await copyText(latestShareLink);
+    toast(ok ? '노드 상태 링크를 복사했어요! ChatGPT에 붙여넣어 열어 달라고 하세요.' : '링크 자동 복사 실패 — 명령창에서 링크를 직접 복사해 주세요.', ok ? 'ok' : 'err');
+  }
   if (e.target.closest('[data-command-close]')) $('#modal').classList.remove('show');
 });
 
 async function commandGpt(node, options = {}) {
   const bundle = buildPromptBundle(node);
   if (!bundle.ok) { toast(bundle.error || '명령을 만들 수 없어요.', 'err'); return; }
+  if (options.shareLink !== false) await addShareLinkToBundle(bundle);
   latestGptCommand = bundle;
   history.unshift({ ts: Date.now(), targetId: bundle.targetId, referenceCount: bundle.references.length, prompt: bundle.command });
   if (history.length > 30) history.pop();
@@ -1122,6 +1324,21 @@ $('#btnGptAll').addEventListener('click', () => {
   if (!target) { toast('GPT 명령 노드가 없어요. 초기화하면 기본 구조가 만들어져요.', 'err'); return; }
   commandGpt(target);
 });
+
+async function copyNodeStudioLink() {
+  const target = nodes.find(n => n.type === 'generate');
+  if (!target) { toast('GPT 명령 노드가 없어요. 초기화하면 기본 구조가 만들어져요.', 'err'); return; }
+  const bundle = buildPromptBundle(target);
+  await addShareLinkToBundle(bundle);
+  latestGptCommand = bundle;
+  openCommandModal(bundle);
+  if (!bundle.shareLink) { toast('노드 상태 링크를 만들지 못했어요. 명령 텍스트를 사용해 주세요.', 'err'); return; }
+  const ok = await copyText(bundle.shareLink);
+  toast(ok ? '노드 상태 링크를 복사했어요! ChatGPT에 붙여넣고 "이 링크를 열어 이미지를 만들어 줘"라고 보내세요.' : '링크 자동 복사 실패 — 창에서 링크를 직접 복사해 주세요.', ok ? 'ok' : 'err');
+}
+
+$('#btnShareLink').addEventListener('click', copyNodeStudioLink);
+$('#btnShareSide').addEventListener('click', copyNodeStudioLink);
 
 function downloadDataUrl(url, name) {
   const a = document.createElement('a');
@@ -1155,8 +1372,9 @@ $('#btnHelp').addEventListener('click', () => {
       <b>2. 기본 구조</b> — 🧑 캐릭터 · 🎨 스타일 · 🎬 연출 · 📐 출력 · 🔗 조합 · 🤖 GPT 명령이 기본으로 연결돼 있어요.<br><br>
       <b>3. 확장</b> — ➕ 추가 내용, 🖼 이미지, ✨ 보정 노드를 우클릭으로 추가하고 조합 노드에 연결하세요. v1 저장 파일도 그대로 불러올 수 있어요.<br><br>
       <b>4. GPT앱으로 명령하기</b> — 버튼을 누르면 빈 노드를 건너뛰고 유용한 값만 모아 명령을 만들어요. 빈 캐릭터·스타일·연출이 있으면 ChatGPT가 맥락으로 자동 보완하라는 지시가 포함됩니다.<br><br>
-      <b>5. 참조 이미지</b> — 이미지 노드에 사진을 올리고 역할을 고르세요. ChatGPT 데스크톱 내장 브라우저에서는 <span style="font-family:Consolas,monospace">get_reference_assets</span> 도구로 메타데이터/데이터를 확인할 수 있어요. 실제 이미지 생성 연결은 ChatGPT 앱 화면에서 결과를 확인해야 합니다.<br><br>
-      <b>6. 저장</b> — 워크플로는 자동 저장되며 JSON 내보내기/불러오기도 가능합니다. 업로드 이미지가 지나치게 크면 자동 저장에서만 제외돼요.
+      <b>5. 노드 상태 링크</b> — <b>🔗 GPT 링크 복사</b>를 누르면 노드 설정과 참조 이미지(최대 4장, 크기 축소)가 URL에 압축돼요. ChatGPT에 링크를 붙여넣고 "이 링크를 열어 워크플로를 읽고 이미지를 만들어 줘"라고 보내면 됩니다.<br><br>
+      <b>6. 참조 이미지</b> — 이미지 노드에 사진을 올리고 역할을 고르세요. ChatGPT 데스크톱 내장 브라우저에서는 <span style="font-family:Consolas,monospace">get_reference_assets</span> 도구로 메타데이터/데이터를 확인할 수 있어요. 실제 이미지 생성 연결은 ChatGPT 앱 화면에서 결과를 확인해야 합니다.<br><br>
+      <b>7. 저장</b> — 워크플로는 자동 저장되며 JSON 내보내기/불러오기도 가능합니다. 업로드 이미지가 지나치게 크면 자동 저장에서만 제외돼요.
     </div>`);
 });
 // ---------- 저장 / 불러오기 ----------
@@ -1276,13 +1494,18 @@ $('#presetSel').addEventListener('change', e => {
 });
 
 // ---------- 시작 ----------
-try {
-  const saved = localStorage.getItem(WORKFLOW_KEY);
-  if (saved) loadWorkflow(JSON.parse(saved));
-  else defaultWorkflow();
-} catch (e) { defaultWorkflow(); }
-applyView();
-registerWebMcpTools();
+(async () => {
+  try {
+    const shared = await loadSharedWorkflowFromHash();
+    if (!shared) {
+      const saved = localStorage.getItem(WORKFLOW_KEY);
+      if (saved) loadWorkflow(JSON.parse(saved));
+      else defaultWorkflow();
+    }
+  } catch (e) { defaultWorkflow(); }
+  applyView();
+  registerWebMcpTools();
+})();
 </script>
 </body>
 </html>

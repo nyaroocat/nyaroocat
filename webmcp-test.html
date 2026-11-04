@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebMCP Site Tools 연동 테스트</title>
+<style>
+  :root{--bg:#0a0f1a;--panel:#101a2a;--line:#22304a;--txt:#e2e8f0;--sub:#8aa0b8;--acc:#5eead4;--acc2:#38bdf8;--ok:#4ade80;--err:#f87171;--warn:#fbbf24}
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
+  body{background:var(--bg);color:var(--txt);min-height:100vh;padding:28px 20px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:22px;margin-bottom:6px}
+  h1 b{color:var(--acc)}
+  .sub{color:var(--sub);font-size:13px;margin-bottom:22px;line-height:1.6}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+  .card h2{font-size:14px;color:var(--acc2);margin-bottom:12px}
+  .status{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;font-size:14px;font-weight:700;margin-bottom:8px}
+  .status.ok{background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.3);color:var(--ok)}
+  .status.bad{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);color:var(--err)}
+  .status.wait{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);color:var(--warn)}
+  .detail{font-size:12.5px;color:var(--sub);line-height:1.7;margin-top:6px}
+  .tools{display:grid;gap:8px}
+  .tool{display:flex;justify-content:space-between;align-items:center;background:#0b1220;border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+  .tool .nm{font-size:13px;font-weight:700;font-family:Consolas,monospace;color:var(--acc)}
+  .tool .ds{font-size:11.5px;color:var(--sub);margin-top:3px}
+  .badge{font-size:11px;padding:3px 10px;border-radius:20px;flex:none}
+  .badge.ok{background:rgba(74,222,128,.12);color:var(--ok);border:1px solid rgba(74,222,128,.3)}
+  .badge.bad{background:rgba(248,113,113,.12);color:var(--err);border:1px solid rgba(248,113,113,.3)}
+  .log{max-height:320px;overflow-y:auto;font-size:12px}
+  .lrow{background:#0b1220;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-family:Consolas,monospace}
+  .lrow .hd{display:flex;justify-content:space-between;color:var(--acc2);font-weight:700;margin-bottom:6px}
+  .lrow pre{white-space:pre-wrap;word-break:break-all;color:#b8c8da;font-size:11px;line-height:1.6}
+  .btn{border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;background:#1b2940;color:var(--txt);margin:4px 4px 0 0}
+  .btn:hover{background:#26375a}
+  .btn.p{background:linear-gradient(135deg,#14b8a6,#0ea5e9);color:#04121d}
+  ol{font-size:13px;line-height:2;color:#c3d0e2;padding-left:20px}
+  ol b{color:var(--txt)}
+  .kb{background:#1b2940;border:1px solid var(--line);border-radius:5px;padding:1px 7px;font-size:11.5px;font-family:Consolas,monospace}
+  .url{font-family:Consolas,monospace;color:var(--acc);word-break:break-all}
+  a{color:var(--acc2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔌 WebMCP <b>Site Tools</b> 연동 테스트</h1>
+  <div class="sub">GPT Image Node Studio v2.0 개발의 <b>STEP 2 기술 검증</b> 페이지입니다. ChatGPT 데스크톱 앱의 내장 브라우저에서 이 페이지를 열고 사이트 도구가 노출되는지 확인합니다.</div>
+
+  <div class="card">
+    <h2>① 브라우저 WebMCP 지원 상태</h2>
+    <div id="envStatus" class="status wait">⏳ 확인 중…</div>
+    <div id="envDetail" class="detail"></div>
+  </div>
+
+  <div class="card">
+    <h2>② 등록된 사이트 도구 (3개)</h2>
+    <div class="tools" id="toolList">
+      <div class="tool"><div><div class="nm">webmcp_ping</div><div class="ds">연결 확인용 · 현재 시간과 페이지 정보 반환</div></div><span class="badge" id="b1">대기</span></div>
+      <div class="tool"><div><div class="nm">get_workflow_summary</div><div class="ds">샘플 노드 워크플로 데이터 반환 (구조 검증용)</div></div><span class="badge" id="b2">대기</span></div>
+      <div class="tool"><div><div class="nm">build_test_prompt</div><div class="ds">입력값(주제·스타일)을 받아 프롬프트 생성 (인자 전달 검증용)</div></div><span class="badge" id="b3">대기</span></div>
+    </div>
+    <div class="detail" style="margin-top:10px">WebMCP를 지원하지 않는 일반 브라우저에서는 아래 시뮬레이션 버튼으로 도구 로직을 직접 검증할 수 있습니다.</div>
+    <button class="btn p" id="btnPing">▶ webmcp_ping 시뮬레이션</button>
+    <button class="btn" id="btnWf">▶ get_workflow_summary 시뮬레이션</button>
+    <button class="btn" id="btnPm">▶ build_test_prompt 시뮬레이션</button>
+  </div>
+
+  <div class="card">
+    <h2>③ 도구 호출 기록 (실시간)</h2>
+    <div class="log" id="log"><div class="detail">아직 호출이 없습니다. ChatGPT가 도구를 호출하면 여기에 표시됩니다.</div></div>
+  </div>
+
+  <div class="card">
+    <h2>④ ChatGPT 데스크톱 앱에서 확인하는 방법</h2>
+    <ol>
+      <li><b>ChatGPT 데스크톱 앱을 최신 버전</b>으로 업데이트 (Site tools는 구버전에 없음)</li>
+      <li>모델을 <b>GPT-5.6 Sol 또는 GPT-6 Sol</b>로 선택 (Luna는 WebMCP 비활성)</li>
+      <li>앱의 <b>내장 브라우저</b>에서 이 페이지 열기 — 주소창에 <span class="url" id="thisUrl"></span></li>
+      <li>주소창의 <b>「Site tools」</b> 클릭 → <b>Available site tools</b>에 3개 도구가 보이는지 확인</li>
+      <li>채팅에 입력: <b>"사이트 도구 webmcp_ping 호출해 줘"</b> → ③ 기록에 호출이 찍히면 성공!</li>
+      <li>이어서: <b>"get_workflow_summary로 워크플로 보여줘"</b>, <b>"build_test_prompt로 주제 '고양이 기사', 스타일 '수채화' 프롬프트 만들어줘"</b></li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>⑤ 참고</h2>
+    <div class="detail">
+      · ChatGPT 내장 브라우저는 WebMCP <b>명령형(Imperative) API</b>만 지원 (HTML 폼 선언형 API·iframe 미지원)<br>
+      · 도구는 HTTPS(보안 컨텍스트) 최상위 페이지에서 등록해야 함 → GitHub Pages 배포 사용<br>
+      · 각 도구 호출 전 ChatGPT 브라우저의 안전 검토가 있으며 승인 절차가 표시될 수 있음<br>
+      · 이 페이지는 v2.0 통합 전 <b>검증 전용</b> — 기존 <span class="url">gpt-image-node-studio.html</span>은 그대로 동작함
+    </div>
+  </div>
+</div>
+
+<script>
+// ---------- 로그 ----------
+const logEl = document.getElementById('log');
+let logCount = 0;
+function addLog(name, input, result, sim) {
+  logCount++;
+  const row = document.createElement('div');
+  row.className = 'lrow';
+  const t = new Date().toLocaleTimeString('ko-KR');
+  const inS = input && Object.keys(input).length ? JSON.stringify(input) : '(인자 없음)';
+  const outS = typeof result === 'string' ? result : JSON.stringify(result, null, 1);
+  row.innerHTML = `<div class="hd"><span>${sim ? '🧪 [시뮬레이션] ' : '🤖 [도구 호출] '}${name}</span><span>${t}</span></div><pre>입력: ${inS}\n결과: ${outS}</pre>`;
+  if (logCount === 1) logEl.innerHTML = '';
+  logEl.prepend(row);
+}
+
+// ---------- 도구 실행 로직 (등록과 시뮬레이션 공용) ----------
+const SAMPLE_WORKFLOW = {
+  app: 'GPT Image Node Studio (테스트용 샘플 데이터)',
+  nodes: [
+    { id: 'n1', type: 'text', title: '📝 텍스트', enabled: true, value: '은빛 갑옷을 입은 고양이 기사' },
+    { id: 'n2', type: 'style', title: '🎨 스타일', enabled: true, value: '판타지 아트, digital painting' },
+    { id: 'n3', type: 'image', title: '🖼 이미지', enabled: true, value: '참조 이미지 1장 (cat-ref.png, 1024×1024)' },
+    { id: 'n4', type: 'combine', title: '🔗 조합', enabled: true, inputs: ['n1', 'n2', 'n3'] },
+    { id: 'n5', type: 'generate', title: '🖼️ 생성', enabled: true, inputs: ['n4'], connected: true },
+  ],
+  links: [
+    { from: 'n1', to: 'n4', port: 0 }, { from: 'n2', to: 'n4', port: 1 },
+    { from: 'n3', to: 'n4', port: 2 }, { from: 'n4', to: 'n5', port: 0 },
+  ],
+};
+
+async function pingLogic() {
+  return {
+    ok: true, message: 'WebMCP 도구 호출 성공!', time: new Date().toISOString(),
+    page: location.href, userAgent: navigator.userAgent.slice(0, 120),
+  };
+}
+async function wfLogic() {
+  return { ok: true, nodeCount: SAMPLE_WORKFLOW.nodes.length, linkCount: SAMPLE_WORKFLOW.links.length, ...SAMPLE_WORKFLOW };
+}
+async function promptLogic(input) {
+  const subject = (input && input.subject) || '판타지 마을';
+  const style = (input && input.style) || '수채화';
+  const prompt = `${subject} — ${style} 스타일의 정교한 일러스트. 구도는 인물 중심, 부드러운 조명, 높은 디테일.`;
+  return { ok: true, subject, style, prompt, note: '이것은 입력 인자 전달 검증용 샘플 프롬프트입니다.' };
+}
+
+// ---------- WebMCP 등록 ----------
+const badges = { webmcp_ping: document.getElementById('b1'), get_workflow_summary: document.getElementById('b2'), build_test_prompt: document.getElementById('b3') };
+function setBadge(name, ok) {
+  const b = badges[name];
+  if (!b) return;
+  b.className = 'badge ' + (ok ? 'ok' : 'bad');
+  b.textContent = ok ? '✅ 등록됨' : '❌ 실패';
+}
+
+(async () => {
+  const st = document.getElementById('envStatus');
+  const dt = document.getElementById('envDetail');
+  document.getElementById('thisUrl').textContent = location.href;
+
+  const mc = (document.modelContext && typeof document.modelContext.registerTool === 'function' && document.modelContext)
+    || (navigator.modelContext && typeof navigator.modelContext.registerTool === 'function' && navigator.modelContext)
+    || null;
+
+  if (!mc) {
+    st.className = 'status bad';
+    st.textContent = '❌ 이 브라우저는 WebMCP를 지원하지 않습니다';
+    dt.innerHTML = '일반 Chrome/Edge에서는 WebMCP가 기본 비활성화입니다 (실험 기능). <b>ChatGPT 데스크톱 앱의 내장 브라우저</b>에서 이 페이지를 열어야 하며, 모델은 <b>GPT-5.6 Sol / GPT-6 Sol</b>이어야 합니다.<br>도구 로직 자체는 아래 시뮬레이션 버튼으로 검증할 수 있습니다. 등록 상태는 모두 실패로 표시되지만 이것은 정상입니다.';
+    Object.keys(badges).forEach(k => setBadge(k, false));
+    return;
+  }
+
+  let ok = 0;
+  try {
+    await mc.registerTool({
+      name: 'webmcp_ping',
+      title: 'WebMCP 핑 테스트',
+      description: 'WebMCP 연결을 확인합니다. 현재 시간과 페이지 정보를 반환합니다. 인자는 필요 없습니다.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true },
+      execute: async () => { const r = await pingLogic(); addLog('webmcp_ping', {}, r, false); return r; },
+    });
+    setBadge('webmcp_ping', true); ok++;
+  } catch (e) { setBadge('webmcp_ping', false); console.error(e); }
+
+  try {
+    await mc.registerTool({
+      name: 'get_workflow_summary',
+      title: '워크플로 요약 조회',
+      description: 'GPT Image Node Studio의 샘플 노드 구성(노드 종류, 설정값, 연결 관계)을 반환합니다. 실제 v2.0에서는 현재 캔버스의 실제 데이터를 반환합니다.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true },
+      execute: async () => { const r = await wfLogic(); addLog('get_workflow_summary', {}, r, false); return r; },
+    });
+    setBadge('get_workflow_summary', true); ok++;
+  } catch (e) { setBadge('get_workflow_summary', false); console.error(e); }
+
+  try {
+    await mc.registerTool({
+      name: 'build_test_prompt',
+      title: '테스트 프롬프트 생성',
+      description: 'subject(주제)와 style(스타일)을 받아 이미지 생성용 프롬프트를 만듭니다. 예: subject="고양이 기사", style="수채화"',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          subject: { type: 'string', description: '그릴 주제 (예: 은빛 갑옷을 입은 고양이 기사)' },
+          style: { type: 'string', description: '이미지 스타일 (예: 수채화, 유화, 3D 렌더)' },
+        },
+        required: ['subject'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: async (input) => { const r = await promptLogic(input || {}); addLog('build_test_prompt', input || {}, r, false); return r; },
+    });
+    setBadge('build_test_prompt', true); ok++;
+  } catch (e) { setBadge('build_test_prompt', false); console.error(e); }
+
+  if (ok === 3) {
+    st.className = 'status ok';
+    st.textContent = '✅ WebMCP 지원 — 3개 도구 등록 완료!';
+    dt.innerHTML = '이제 <b>ChatGPT 데스크톱 앱의 내장 브라우저</b>에서 이 페이지를 열고(GPT-5.6 Sol / GPT-6 Sol), 주소창의 <b>Site tools</b>를 확인하세요. 채팅에서 "webmcp_ping 호출해 줘"라고 요청하면 ③ 기록에 표시됩니다.';
+    if (typeof mc.getTools === 'function') {
+      try { const tools = await mc.getTools(); dt.innerHTML += `<br>등록된 도구 수(getTools): <b>${tools.length}</b>`; } catch (e) {}
+    }
+  } else {
+    st.className = 'status bad';
+    st.textContent = `⚠️ WebMCP 객체는 있으나 등록 실패 (${ok}/3)`;
+    dt.textContent = '개발자 콘솔(F12)의 오류 메시지를 확인해 주세요.';
+  }
+})();
+
+// ---------- 시뮬레이션 (WebMCP 없는 브라우저용) ----------
+document.getElementById('btnPing').addEventListener('click', async () => addLog('webmcp_ping', {}, await pingLogic(), true));
+document.getElementById('btnWf').addEventListener('click', async () => addLog('get_workflow_summary', {}, await wfLogic(), true));
+document.getElementById('btnPm').addEventListener('click', async () => addLog('build_test_prompt', { subject: '고양이 기사', style: '수채화' }, await promptLogic({ subject: '고양이 기사', style: '수채화' }), true));
+</script>
+</body>
+</html>

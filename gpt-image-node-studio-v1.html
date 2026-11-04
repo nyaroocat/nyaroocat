@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPT 이미지 노드 스튜디오</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>">
+<style>
+:root{
+  --bg:#0b0f17; --panel:#111827; --panel2:#0e1522; --line:#1f2a3a;
+  --txt:#e5edf7; --sub:#8b9bb4; --acc:#5eead4; --acc2:#38bdf8;
+  --err:#f87171; --ok:#4ade80;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Pretendard','Segoe UI','Malgun Gothic',sans-serif;background:var(--bg);color:var(--txt);overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit}
+
+/* ===== 레이아웃 ===== */
+#topbar{height:56px;display:flex;align-items:center;gap:10px;padding:0 16px;background:linear-gradient(180deg,#101a2b,#0d1420);border-bottom:1px solid var(--line)}
+#topbar .logo{font-weight:800;font-size:16px;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+#topbar .logo .badge{font-size:10px;font-weight:700;color:#0b1220;background:var(--acc);border-radius:6px;padding:2px 6px}
+#topbar .spacer{flex:1}
+.tbtn{background:#182334;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;transition:.15s}
+.tbtn:hover{background:#21304a;border-color:#33455f}
+.tbtn.primary{background:linear-gradient(135deg,#14b8a6,#0ea5e9);border:none;color:#04121d}
+.tbtn.primary:hover{filter:brightness(1.1)}
+
+#app{display:flex;height:calc(100% - 56px)}
+#canvasWrap{flex:1;position:relative;overflow:hidden}
+#canvas{position:absolute;inset:0;background-color:#0a0e15;background-image:linear-gradient(#16202f 1px,transparent 1px),linear-gradient(90deg,#16202f 1px,transparent 1px);cursor:grab}
+#canvas.panning{cursor:grabbing}
+#world{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0}
+#links{position:absolute;left:0;top:0;width:2px;height:2px;overflow:visible;pointer-events:none}
+#links .hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+#links .line{fill:none;stroke:#4d6482;stroke-width:2.5;pointer-events:none}
+#temp{fill:none;stroke:var(--acc);stroke-width:2;stroke-dasharray:6 4;pointer-events:none}
+
+/* ===== 노드 ===== */
+.node{position:absolute;background:var(--panel);border:1px solid #263449;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.45);min-width:235px;font-size:13px;user-select:none}
+.node.selected{border-color:var(--acc);box-shadow:0 0 0 2px rgba(94,234,212,.25),0 8px 28px rgba(0,0,0,.5)}
+.node-head{display:flex;align-items:center;gap:8px;padding:9px 12px;font-weight:700;font-size:13px;border-bottom:1px solid #1d2939;cursor:grab;border-radius:12px 12px 0 0;background:linear-gradient(180deg,rgba(255,255,255,.04),transparent)}
+.node-head:active{cursor:grabbing}
+.node-head .dot{width:9px;height:9px;border-radius:50%;background:var(--c,#5eead4);flex:none;box-shadow:0 0 8px var(--c)}
+.node-head .del{margin-left:auto;background:none;border:none;color:#64748b;font-size:12px;padding:2px 5px;border-radius:5px}
+.node-head .del:hover{color:var(--err);background:rgba(248,113,113,.12)}
+.ports{display:flex;justify-content:space-between;gap:14px;padding:8px 12px 2px}
+.ports .col{display:flex;flex-direction:column;gap:6px}
+.port-line{display:flex;align-items:center;gap:6px;height:18px}
+.port{width:12px;height:12px;border-radius:50%;background:#0b1220;border:2.5px solid var(--c,#5eead4);cursor:crosshair;flex:none;transition:.12s}
+.port:hover{transform:scale(1.35);box-shadow:0 0 10px var(--c)}
+.plabel{font-size:10.5px;color:var(--sub)}
+.col.out .port-line{flex-direction:row-reverse}
+.nbody{padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.nbody textarea{width:100%;min-height:74px;resize:vertical;background:#0b1220;color:var(--txt);border:1px solid #243247;border-radius:8px;padding:8px;font-size:12.5px;line-height:1.5}
+.nbody textarea:focus,.nbody input:focus,.nbody select:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 2px rgba(94,234,212,.15)}
+.nbody select,.nbody input[type=text]{width:100%;background:#0b1220;color:var(--txt);border:1px solid #243247;border-radius:8px;padding:7px 8px;font-size:12.5px}
+.chk{display:flex;align-items:center;gap:7px;font-size:12px;color:#c3d0e2;cursor:pointer;padding:2px 0}
+.chk input{accent-color:var(--acc);width:14px;height:14px;cursor:pointer}
+.hint-txt{font-size:11px;color:var(--sub);line-height:1.5}
+
+/* 생성 노드 */
+.node.t-generate{min-width:305px}
+.prompt-preview{background:#0b1220;border:1px dashed #2b3b53;border-radius:8px;padding:8px;font-size:11.5px;color:#9fb2ca;line-height:1.55;min-height:48px;max-height:110px;overflow-y:auto;white-space:pre-wrap}
+.g-status{font-size:11.5px;color:var(--sub);display:flex;align-items:center;gap:6px}
+.g-status.run{color:var(--acc2)} .g-status.ok{color:var(--ok)} .g-status.err{color:var(--err)}
+.g-img{display:none;border-radius:10px;overflow:hidden;border:1px solid #2b3b53;cursor:zoom-in;background:#0b1220}
+.g-img img{display:block;width:100%;height:auto}
+.btnrow{display:flex;gap:6px}
+.btnrow .b{flex:1;border-radius:8px;border:none;padding:8px 0;font-size:12.5px;font-weight:700;background:#1b2940;color:var(--txt);transition:.15s}
+.btnrow .b:hover{background:#26375a}
+.btnrow .b.go{background:linear-gradient(135deg,#14b8a6,#0ea5e9);color:#04121d}
+.btnrow .b.go:hover{filter:brightness(1.12)}
+.btnrow .b.cancel{background:#3b1d24;color:#fda4af}
+.btnrow .b:disabled{opacity:.35;cursor:not-allowed}
+
+/* 이미지 노드 */
+.node.t-image{min-width:235px}
+.img-drop{border:1.5px dashed #2b3b53;border-radius:10px;padding:14px 10px;text-align:center;cursor:pointer;transition:.15s;background:#0b1220}
+.img-drop:hover,.img-drop.drag{border-color:#fb923c;background:#131a26}
+.img-drop .ic{font-size:26px;line-height:1}
+.img-drop .t1{font-size:12px;font-weight:700;color:#c3d0e2;margin-top:5px}
+.img-drop .t2{font-size:10.5px;color:var(--sub);margin-top:3px;line-height:1.55}
+.img-thumb{display:none;border-radius:10px;overflow:hidden;border:1px solid #2b3b53;background:#0b1220}
+.img-thumb img{display:block;width:100%;height:auto;cursor:zoom-in}
+.img-meta{display:none;justify-content:space-between;align-items:center;gap:8px;font-size:10.5px;color:var(--sub);padding:5px 1px 0}
+.img-meta .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.img-actions{display:none;gap:6px;margin-top:6px}
+.img-actions .b{flex:1;border-radius:8px;border:none;padding:6px 0;font-size:11.5px;font-weight:700;background:#1b2940;color:var(--txt);cursor:pointer;transition:.15s}
+.img-actions .b:hover{background:#26375a}
+.ref-chip{display:none;font-size:11px;color:#fdba74;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.3);border-radius:8px;padding:5px 8px;margin-top:6px;line-height:1.5}
+.ref-chip.on{display:block}
+
+/* ===== 우측 패널 ===== */
+#side{width:284px;flex:none;background:var(--panel2);border-left:1px solid var(--line);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px}
+.sec{background:#101a2a;border:1px solid var(--line);border-radius:12px;padding:14px}
+.sec h3{font-size:12.5px;font-weight:800;color:var(--acc);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.field{margin-bottom:10px}
+.field:last-child{margin-bottom:0}
+.field label{display:block;font-size:11.5px;color:var(--sub);margin-bottom:4px;font-weight:600}
+.field input[type=password],.field input[type=text],.field select{width:100%;background:#0b1220;color:var(--txt);border:1px solid #243247;border-radius:8px;padding:8px;font-size:12.5px}
+.field input:focus,.field select:focus{outline:none;border-color:var(--acc)}
+.rowchk{display:flex;align-items:center;gap:7px;font-size:12px;color:#c3d0e2;cursor:pointer}
+.rowchk input{accent-color:var(--acc)}
+.pay{font-size:11px;color:#f4bf77;background:rgba(244,191,119,.08);border:1px solid rgba(244,191,119,.25);border-radius:8px;padding:7px 9px;line-height:1.5}
+.cost-line{font-size:11.5px;color:#9fe8d8;background:rgba(94,234,212,.07);border:1px solid rgba(94,234,212,.2);border-radius:8px;padding:7px 9px;line-height:1.5}
+.diag-box{font-size:12px;line-height:1.7;max-height:260px;overflow-y:auto}
+.diag-box .ok{color:var(--ok)} .diag-box .bad{color:var(--err)} .diag-box .warn{color:#f4bf77}
+.diag-box .mrow{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dashed #1d2a3a}
+.diag-links{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.diag-links a{font-size:10.5px;color:var(--acc2);text-decoration:none;background:#0b1220;border:1px solid #243247;border-radius:6px;padding:3px 8px}
+.note{font-size:11px;color:var(--sub);line-height:1.6}
+.note a{color:var(--acc2);text-decoration:none}
+
+/* ===== 오버레이 ===== */
+#hintbar{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(13,20,32,.85);border:1px solid var(--line);border-radius:20px;padding:7px 16px;font-size:11.5px;color:var(--sub);backdrop-filter:blur(6px);white-space:nowrap;pointer-events:none}
+#zoomctl{position:absolute;bottom:14px;right:14px;display:flex;gap:6px}
+#zoomctl button{width:32px;height:32px;border-radius:8px;background:rgba(13,20,32,.9);border:1px solid var(--line);color:var(--txt);font-size:15px;font-weight:700}
+#zoomctl button:hover{background:#22304a}
+#zoomctl .zl{width:auto;padding:0 10px;font-size:11.5px}
+
+#ctxmenu{position:absolute;display:none;background:#101a2a;border:1px solid #2b3b53;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:5px;z-index:1000;min-width:150px}
+#ctxmenu .mi{padding:8px 12px;border-radius:7px;font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:8px}
+#ctxmenu .mi:hover{background:#1d2c44}
+#ctxmenu .mi .cd{width:8px;height:8px;border-radius:50%;flex:none}
+
+#toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-12px);opacity:0;background:#132034;border:1px solid #2b3b53;color:var(--txt);padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;transition:.25s;z-index:2000;pointer-events:none;max-width:70vw;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:rgba(248,113,113,.5);color:#fca5a5}
+#toast.ok{border-color:rgba(74,222,128,.4)}
+
+#modal{position:fixed;inset:0;background:rgba(4,8,14,.78);display:none;align-items:center;justify-content:center;z-index:1500;backdrop-filter:blur(4px)}
+#modal.show{display:flex}
+#modal .box{background:var(--panel);border:1px solid #2b3b53;border-radius:14px;max-width:min(1000px,92vw);max-height:88vh;overflow:auto;padding:20px;position:relative}
+#modal .box img.big{max-width:100%;max-height:74vh;border-radius:10px;display:block}
+#modal .close{position:absolute;top:12px;right:12px;background:#1b2940;border:none;color:var(--txt);width:30px;height:30px;border-radius:8px;font-size:13px}
+#modal h2{font-size:15px;margin-bottom:14px}
+#modal .help{font-size:13px;line-height:1.9;color:#c9d6e8;max-width:640px}
+#modal .help b{color:var(--acc)}
+#modal .help .kb{background:#0b1220;border:1px solid #2b3b53;border-radius:5px;padding:1px 7px;font-size:11.5px}
+#modal .hgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+#modal .hcard{background:#0b1220;border:1px solid #243247;border-radius:10px;padding:8px}
+#modal .hcard img{width:100%;border-radius:7px;display:block;cursor:zoom-in}
+#modal .hcard .pmeta{font-size:10.5px;color:var(--sub);margin-top:6px;line-height:1.5;max-height:44px;overflow:hidden}
+#modal .hcard button{margin-top:6px;width:100%;background:#1b2940;border:none;color:var(--txt);border-radius:7px;padding:6px;font-size:11.5px;font-weight:700}
+
+#fileInput{display:none}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#28374f;border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">🧩 GPT 이미지 노드 스튜디오 <span class="badge">NODE</span></div>
+  <div class="spacer"></div>
+  <select id="presetSel" class="tbtn" style="padding:7px 10px" title="예시 워크플로">
+    <option value="">📂 예시 불러오기…</option>
+    <option value="portrait">① 인물 시네마틱 사진</option>
+    <option value="product">② 제품 3D 렌더</option>
+    <option value="fantasy">③ 판타지 배경화면</option>
+  </select>
+  <button class="tbtn" id="btnSave">💾 저장</button>
+  <button class="tbtn" id="btnLoad">📂 불러오기</button>
+  <button class="tbtn" id="btnReset">🔄 초기화</button>
+  <button class="tbtn" id="btnHelp">❓ 도움말</button>
+  <button class="tbtn" id="btnHist">🖼 기록 <span id="histCount">0</span></button>
+</div>
+
+<div id="app">
+  <div id="canvasWrap">
+    <div id="canvas"><div id="world"><svg id="links"><path id="temp" d=""/></svg></div></div>
+    <div id="hintbar">빈 곳 드래그 = 화면 이동 · 휠 = 확대/축소 · <b style="color:#c3d0e2">우클릭 = 노드 추가</b> · 점(포트) 드래그로 연결 · 선 더블클릭 = 삭제</div>
+    <div id="zoomctl">
+      <button id="zIn">+</button><button id="zOut">−</button>
+      <button id="zFit" class="zl">100%</button>
+    </div>
+    <div id="ctxmenu"></div>
+  </div>
+
+  <div id="side">
+    <div class="sec">
+      <h3>🔑 OpenAI API</h3>
+      <div class="field">
+        <label>API 키</label>
+        <input type="password" id="apiKey" placeholder="sk-...">
+      </div>
+      <label class="rowchk"><input type="checkbox" id="saveKey"> 이 브라우저에 키 저장</label>
+      <div class="note" style="margin-top:8px">키 발급: <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a> · 키는 외부로 전송되지 않고 브라우저에만 보관됩니다.</div>
+      <div class="note" style="margin-top:6px">💡 구글 로그인 계정도 <a href="https://platform.openai.com" target="_blank">platform.openai.com</a>에서 <b>같은 구글 계정</b>으로 로그인하면 API 키를 발급해 연결할 수 있어요.</div>
+    </div>
+
+    <div class="sec">
+      <h3>🔎 계정 · 요금 진단</h3>
+      <button class="tbtn primary" id="btnDiag" style="width:100%;padding:9px">🔍 API 키 진단하기</button>
+      <div class="diag-box" id="diagResult" style="margin-top:10px">
+        <span class="note">키 유효성, 사용 가능한 이미지 모델, 조직 인증 상태를 확인하고 사용할 모델을 자동으로 판단해 줍니다.</span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h3>⚙️ 생성 설정</h3>
+      <div class="field"><label>모델</label><select id="mModel"></select></div>
+      <div class="field"><label>크기</label><select id="mSize"></select></div>
+      <div class="field"><label>품질</label><select id="mQuality"></select></div>
+      <div class="field"><label>생성 개수 (동시 결과)</label><select id="mN"></select></div>
+      <label class="rowchk"><input type="checkbox" id="mTrans"> 투명 배경 (gpt-image 계열)</label>
+      <div class="cost-line" id="costEst" style="margin-top:10px"></div>
+      <div class="cost-line" id="spendEst" style="margin-top:6px"></div>
+      <div class="pay" style="margin-top:10px">⚠️ 이미지 생성 API는 <b>유료</b>입니다. 고품질·대형일수록 비용이 증가해요.</div>
+    </div>
+
+    <div class="sec">
+      <h3>🧭 사용 흐름</h3>
+      <div class="note">
+        ① 텍스트 노드에 그릴 내용 입력<br>
+        ② 🖼 이미지 노드로 참조 이미지 추가 (클릭 업로드 · 드래그 · Ctrl+V)<br>
+        ③ 스타일·보정·이미지 노드를 <b>조합</b> 노드로 연결<br>
+        ④ 조합 결과를 <b>생성</b> 노드에 연결<br>
+        ⑤ 생성 노드의 <b style="color:#5eead4">생성</b> 버튼 클릭!<br>
+        <span style="opacity:.75">워크플로는 자동 저장되어 다음에 그대로 열립니다.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="modal"><div class="box" id="modalBox"></div></div>
+<input type="file" id="fileInput" accept=".json">
+
+<script>
+'use strict';
+/* =====================================================
+   GPT 이미지 노드 스튜디오 - 단일 HTML 노드 기반 이미지 생성 도구
+   ===================================================== */
+
+// ---------- 유틸 ----------
+const $ = s => document.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const byId = id => nodes.find(n => n.id === id);
+
+// ---------- 상태 ----------
+let nodes = [], links = [], nextId = 1;
+let view = { x: 40, y: 30, z: 1 };
+let selectedNode = null;
+let history = [];
+let dragState = null;
+let saveTimer = null;
+let sessionSpend = 0, sessionImages = 0;
+let diagAvailable = null;
+
+const canvas = $('#canvas'), world = $('#world'), svg = $('#links');
+
+// ---------- 스타일 옵션 ----------
+const STYLE_MAP = {
+  '': '',
+  '사진 (포토리얼)': 'photorealistic photography, 50mm lens, natural lighting, high detail',
+  '시네마틱': 'cinematic still, film grain, dramatic lighting, anamorphic',
+  '일러스트 (벡터)': 'clean vector illustration, flat colors, bold outlines',
+  '3D 렌더': '3D render, octane render, soft studio lighting, high detail',
+  '수채화': 'watercolor painting, soft washes, paper texture, delicate',
+  '유화': 'oil painting, thick brush strokes, rich texture, canvas',
+  '애니메이션': 'anime style, cel shading, vibrant colors, detailed background',
+  '픽셀 아트': '16-bit pixel art, crisp pixels, limited palette',
+  '미니멀': 'minimalist design, clean, lots of negative space',
+  '판타지 아트': 'epic fantasy art, painterly, magical atmosphere',
+};
+
+const ENHANCE_MAP = {
+  '조명 강화': 'dramatic volumetric lighting, god rays',
+  '초고해상도': 'ultra detailed, 8k, sharp focus',
+  '생생한 색감': 'vivid saturated colors, high contrast',
+  '부드러운 색감': 'soft pastel color palette, gentle mood',
+  '깊이감': 'depth of field, bokeh background',
+  '대칭 구도': 'symmetrical composition, centered framing',
+};
+
+// ---------- 노드 정의 ----------
+const IMG_MODES = ['참조 (스타일·구도)', '인물 유지', '부분 편집 (나머지 유지)'];
+const IMG_MODE_HINTS = {
+  '참조 (스타일·구도)': 'A reference image is attached. Use it as a visual reference: follow its overall composition, style and mood.',
+  '인물 유지': 'A reference photo of a person is attached. Preserve their exact identity, facial features and appearance faithfully.',
+  '부분 편집 (나머지 유지)': 'Edit the attached image according to the instructions. Change only what is requested and keep everything else exactly unchanged.',
+};
+
+const NODE_DEFS = {
+  text: {
+    title: '📝 텍스트', color: '#5eead4', inputs: 0, outputs: 1,
+    defaults: { text: '' },
+    body(n) {
+      const ta = el('textarea'); ta.placeholder = '예: 네온 간판이 반짝이는 비 내리는 미래 도시 골목';
+      ta.value = n.props.text;
+      ta.addEventListener('input', () => { n.props.text = ta.value; schedule(); });
+      return [ta];
+    },
+    eval: n => (n.props.text || '').trim(),
+  },
+  style: {
+    title: '🎨 스타일', color: '#f0abfc', inputs: 0, outputs: 1,
+    defaults: { style: '사진 (포토리얼)', extra: '' },
+    body(n) {
+      const sel = el('select');
+      Object.keys(STYLE_MAP).forEach(k => { const o = el('option'); o.value = k; o.textContent = k || '— 선택 —'; sel.appendChild(o); });
+      sel.value = n.props.style;
+      sel.addEventListener('change', () => { n.props.style = sel.value; schedule(); });
+      const ex = el('input'); ex.type = 'text'; ex.placeholder = '추가 키워드 (예: night, rain)';
+      ex.value = n.props.extra;
+      ex.addEventListener('input', () => { n.props.extra = ex.value; schedule(); });
+      return [sel, ex];
+    },
+    eval: n => [STYLE_MAP[n.props.style] || '', (n.props.extra || '').trim()].filter(Boolean).join(', '),
+  },
+  image: {
+    title: '🖼 이미지', color: '#fb923c', inputs: 0, outputs: 1,
+    defaults: { src: '', name: '', w: 0, h: 0, mode: '참조 (스타일·구도)' },
+    body(n) {
+      const sel = el('select');
+      IMG_MODES.forEach(k => { const o = el('option'); o.value = k; o.textContent = k; sel.appendChild(o); });
+      sel.value = n.props.mode;
+      sel.addEventListener('change', () => { n.props.mode = sel.value; schedule(); updatePreviews(); });
+
+      const fi = el('input'); fi.type = 'file'; fi.accept = 'image/png,image/jpeg,image/webp'; fi.style.display = 'none';
+      const drop = el('div', 'img-drop', '<div class="ic">🖼</div><div class="t1">클릭해서 이미지 추가</div><div class="t2">PNG · JPG · WebP<br>끌어다 놓기 · Ctrl+V 붙여넣기도 가능</div>');
+      const thumb = el('div', 'img-thumb'); const tim = el('img'); thumb.appendChild(tim);
+      thumb.addEventListener('click', () => { if (n.props.src) openImageModal(n.props.src); });
+      const meta = el('div', 'img-meta'); const nm = el('span', 'nm');
+      meta.append(nm);
+      const actions = el('div', 'img-actions');
+      const rep = el('button', 'b', '🔁 교체'); const del = el('button', 'b', '🗑 제거');
+      actions.append(rep, del);
+
+      function renderInfo() {
+        const has = !!n.props.src;
+        drop.style.display = has ? 'none' : '';
+        thumb.style.display = has ? 'block' : 'none';
+        meta.style.display = has ? 'flex' : 'none';
+        actions.style.display = has ? 'flex' : 'none';
+        if (has) { tim.src = n.props.src; nm.textContent = `${n.props.name || 'image'} · ${n.props.w}×${n.props.h}`; }
+      }
+      async function applyFile(file) {
+        try {
+          const d = await loadImageFile(file);
+          n.props.src = d.src; n.props.name = file.name || 'image'; n.props.w = d.w; n.props.h = d.h;
+          renderInfo(); schedule(); updatePreviews();
+          toast('이미지가 추가됐어요! 생성 노드에 연결하면 참조로 사용됩니다.', 'ok');
+        } catch (err) { toast('이미지 추가 실패: ' + err.message, 'err'); }
+      }
+      drop.addEventListener('click', () => fi.click());
+      rep.addEventListener('click', () => fi.click());
+      fi.addEventListener('change', () => { if (fi.files && fi.files[0]) applyFile(fi.files[0]); fi.value = ''; });
+      del.addEventListener('click', () => { n.props.src = ''; n.props.name = ''; n.props.w = 0; n.props.h = 0; renderInfo(); schedule(); updatePreviews(); });
+      ;['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); drop.classList.add('drag'); }));
+      ;['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('drag'); }));
+      drop.addEventListener('drop', e => { const f = [...(e.dataTransfer.files || [])][0]; if (f) applyFile(f); });
+      renderInfo();
+      return [sel, drop, thumb, meta, actions, fi];
+    },
+    eval: n => n.props.src ? (IMG_MODE_HINTS[n.props.mode] || '') : '',
+  },
+  enhance: {
+    title: '✨ 보정', color: '#fbbf24', inputs: 1, outputs: 1,
+    defaults: { checks: { '조명 강화': true, '초고해상도': true, '생생한 색감': false, '부드러운 색감': false, '깊이감': false, '대칭 구도': false } },
+    body(n) {
+      const wrap = el('div');
+      Object.keys(ENHANCE_MAP).forEach(k => {
+        const lb = el('label', 'chk');
+        const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!n.props.checks[k];
+        cb.addEventListener('change', () => { n.props.checks[k] = cb.checked; schedule(); });
+        lb.append(cb, document.createTextNode(k));
+        wrap.appendChild(lb);
+      });
+      return [wrap];
+    },
+    eval: (n, ins) => [ins[0] || '', ...Object.keys(n.props.checks).filter(k => n.props.checks[k]).map(k => ENHANCE_MAP[k])].filter(Boolean).join(', '),
+  },
+  combine: {
+    title: '🔗 조합', color: '#38bdf8', inputs: 3, outputs: 1,
+    defaults: {},
+    body() { return [el('div', 'hint-txt', '여러 입력을 하나의 프롬프트로 합칩니다. 빈 입력은 자동으로 건너뜁니다.')]; },
+    eval: (n, ins) => ins.map(s => (s || '').trim()).filter(Boolean).join(', '),
+  },
+  generate: {
+    title: '🖼️ 생성', color: '#4ade80', inputs: 1, outputs: 0,
+    defaults: {},
+    body(n) {
+      const pv = el('div', 'prompt-preview'); pv.dataset.role = 'preview';
+      const rf = el('div', 'ref-chip'); rf.dataset.role = 'ref';
+      const st = el('div', 'g-status'); st.dataset.role = 'status'; st.textContent = '대기 중';
+      const gi = el('div', 'g-img'); gi.dataset.role = 'img';
+      const img = el('img'); gi.appendChild(img);
+      gi.addEventListener('click', () => { if (n.props.img) openImageModal(n.props.img); });
+      const row = el('div', 'btnrow');
+      const go = el('button', 'b go', '⚡ 생성'); go.dataset.role = 'go';
+      const cx = el('button', 'b cancel', '⏹ 취소'); cx.dataset.role = 'cancel'; cx.style.display = 'none';
+      const dl = el('button', 'b', '⬇ 다운로드'); dl.dataset.role = 'dl'; dl.style.display = 'none';
+      go.addEventListener('click', () => runGenerate(n));
+      cx.addEventListener('click', () => { if (n._ctrl) n._ctrl.abort(); });
+      dl.addEventListener('click', () => { if (n.props.img) downloadDataUrl(n.props.img, `gpt-image-${n.id}-${Date.now()}.png`); });
+      row.append(go, cx, dl);
+      n._els = { pv, rf, st, gi, img, go, cx, dl };
+      return [pv, rf, st, gi, row];
+    },
+    eval: (n, ins) => ins[0] || '',
+  },
+};
+
+// ---------- 노드 DOM ----------
+function renderNode(node) {
+  const def = NODE_DEFS[node.type];
+  const nd = el('div', 'node t-' + node.type);
+  nd.dataset.id = node.id;
+  nd.style.left = node.x + 'px'; nd.style.top = node.y + 'px';
+  nd.style.setProperty('--c', def.color);
+
+  const head = el('div', 'node-head');
+  head.append(el('span', 'dot'), el('span', null, def.title));
+  const del = el('button', 'del', '✕'); del.title = '노드 삭제';
+  del.addEventListener('pointerdown', e => e.stopPropagation());
+  del.addEventListener('click', e => { e.stopPropagation(); removeNode(node.id); });
+  head.appendChild(del);
+
+  const ports = el('div', 'ports');
+  const inCol = el('div', 'col in'), outCol = el('div', 'col out');
+  for (let i = 0; i < def.inputs; i++) {
+    const line = el('div', 'port-line');
+    const p = el('span', 'port in'); p.dataset.node = node.id; p.dataset.dir = 'in'; p.dataset.index = i;
+    const lbl = el('span', 'plabel', def.inputs > 1 ? `입력 ${i + 1}` : '입력');
+    line.append(p, lbl); inCol.appendChild(line);
+  }
+  for (let i = 0; i < def.outputs; i++) {
+    const line = el('div', 'port-line');
+    const p = el('span', 'port out'); p.dataset.node = node.id; p.dataset.dir = 'out'; p.dataset.index = i;
+    const lbl = el('span', 'plabel', def.outputs > 1 ? `출력 ${i + 1}` : '출력');
+    line.append(p, lbl); outCol.appendChild(line);
+  }
+  if (def.inputs) ports.appendChild(inCol);
+  if (def.outputs) ports.appendChild(outCol);
+
+  const body = el('div', 'nbody');
+  def.body(node).forEach(c => body.appendChild(c));
+
+  nd.append(head, ports, body);
+  nd.addEventListener('pointerdown', e => onNodePointerDown(e, node));
+  world.appendChild(nd);
+  node._el = nd;
+}
+
+function removeNode(id) {
+  links = links.filter(l => l.from.node !== id && l.to.node !== id);
+  nodes = nodes.filter(n => n.id !== id);
+  const nd = world.querySelector(`.node[data-id="${id}"]`); if (nd) nd.remove();
+  if (selectedNode === id) selectedNode = null;
+  schedule();
+}
+
+function addNode(type, x, y, props = {}, silent = false) {
+  const node = { id: 'n' + (nextId++), type, x, y, props: structuredClone(NODE_DEFS[type].defaults) };
+  Object.assign(node.props, props);
+  nodes.push(node);
+  renderNode(node);
+  if (!silent) schedule();
+  return node;
+}
+
+// ---------- 링크 ----------
+function makeLink(fromNode, fromIdx, toNode, toIdx) {
+  if (fromNode === toNode) return;
+  links = links.filter(l => !(l.to.node === toNode && l.to.index === toIdx));
+  links.push({ id: 'l' + (nextId++), from: { node: fromNode, index: fromIdx }, to: { node: toNode, index: toIdx } });
+  schedule();
+}
+
+function portPos(nodeId, dir, index) {
+  const p = world.querySelector(`.port[data-node="${nodeId}"][data-dir="${dir}"][data-index="${index}"]`);
+  if (!p) return { x: 0, y: 0 };
+  const r = p.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+  return { x: (r.left + r.width / 2 - c.left - view.x) / view.z, y: (r.top + r.height / 2 - c.top - view.y) / view.z };
+}
+
+function pathD(a, b) {
+  const dx = Math.max(50, Math.abs(b.x - a.x) * 0.55);
+  return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
+}
+
+function updateLinks() {
+  let html = '';
+  links.forEach(l => {
+    const a = portPos(l.from.node, 'out', l.from.index);
+    const b = portPos(l.to.node, 'in', l.to.index);
+    html += `<g class="link" data-id="${l.id}"><path class="hit" d="${pathD(a, b)}"/><path class="line" d="${pathD(a, b)}"/></g>`;
+  });
+  html += `<path id="temp" d=""/>`;
+  svg.innerHTML = html;
+  updatePreviews();
+}
+
+// ---------- 프롬프트 평가 ----------
+function evalNode(id, stack) {
+  if (stack.has(id)) return '';
+  stack.add(id);
+  const n = byId(id); if (!n) return '';
+  const def = NODE_DEFS[n.type];
+  const ins = [];
+  for (let i = 0; i < def.inputs; i++) {
+    const l = links.find(l => l.to.node === id && l.to.index === i);
+    ins.push(l ? evalNode(l.from.node, stack) : '');
+  }
+  return def.eval(n, ins, stack) || '';
+}
+
+function genPrompt(node) {
+  const l = links.find(l => l.to.node === node.id && l.to.index === 0);
+  return l ? evalNode(l.from.node, new Set()) : '';
+}
+
+function collectImages(node, stack = new Set()) {
+  if (stack.has(node.id)) return [];
+  stack.add(node.id);
+  const def = NODE_DEFS[node.type];
+  const out = [];
+  for (let i = 0; i < def.inputs; i++) {
+    const l = links.find(l => l.to.node === node.id && l.to.index === i);
+    if (!l) continue;
+    const src = byId(l.from.node);
+    if (!src) continue;
+    if (src.type === 'image') { if (src.props.src) out.push(src); }
+    else out.push(...collectImages(src, stack));
+  }
+  return out;
+}
+
+function loadImageFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { reject(new Error('PNG · JPG · WebP 이미지만 지원합니다.')); return; }
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 2048;
+        if (img.width <= MAX && img.height <= MAX && file.size <= 4 * 1024 * 1024) {
+          resolve({ src: fr.result, w: img.width, h: img.height }); return;
+        }
+        const sc = Math.min(1, MAX / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(img.width * sc)); cv.height = Math.max(1, Math.round(img.height * sc));
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        resolve({ src: cv.toDataURL(type, 0.92), w: cv.width, h: cv.height });
+      };
+      img.onerror = () => reject(new Error('이미지를 읽을 수 없습니다.'));
+      img.src = fr.result;
+    };
+    fr.onerror = () => reject(new Error('파일을 읽을 수 없습니다.'));
+    fr.readAsDataURL(file);
+  });
+}
+
+function dataUrlToBlob(u) {
+  const parts = u.split(',');
+  const mime = ((parts[0].match(/data:([^;]+)/) || [])[1]) || 'image/png';
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function updatePreviews() {
+  nodes.filter(n => n.type === 'generate' && n._els).forEach(n => {
+    n._els.pv.textContent = genPrompt(n) || '(입력이 연결되지 않았습니다)';
+    const imgs = collectImages(n);
+    n._els.rf.classList.toggle('on', imgs.length > 0);
+    if (imgs.length) {
+      const warn = settings.model === 'dall-e-3' ? ' ⚠️ DALL·E 3는 이미지 입력 불가 — GPT Image 계열을 선택해 주세요' : '';
+      n._els.rf.textContent = `🖼 참조 이미지 ${imgs.length}장 연결됨${warn}`;
+    }
+  });
+}
+
+// ---------- 뷰(팬/줌) ----------
+function applyView() {
+  world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+  canvas.style.backgroundSize = `${28 * view.z}px ${28 * view.z}px`;
+  canvas.style.backgroundPosition = `${view.x}px ${view.y}px`;
+  $('#zFit').textContent = Math.round(view.z * 100) + '%';
+  updateLinks();
+}
+
+function screenToWorld(cx, cy) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (cx - r.left - view.x) / view.z, y: (cy - r.top - view.y) / view.z };
+}
+
+// ---------- 포인터 이벤트 ----------
+function onNodePointerDown(e, node) {
+  if (e.button !== 0) return;
+  if (e.target.closest('button,input,select,textarea,.port')) return;
+  e.stopPropagation();
+  selectNode(node.id);
+  const w = screenToWorld(e.clientX, e.clientY);
+  dragState = { mode: 'node', node, offX: w.x - node.x, offY: w.y - node.y };
+  node._el.style.zIndex = 20;
+}
+
+canvas.addEventListener('pointerdown', e => {
+  hideCtx();
+  if (e.target.closest('.port')) {
+    e.preventDefault();
+    const p = e.target;
+    dragState = { mode: 'connect', from: { node: p.dataset.node, dir: p.dataset.dir, index: +p.dataset.index } };
+    canvas.setPointerCapture(e.pointerId);
+    return;
+  }
+  if (e.target.closest('.node')) return;
+  if (e.button === 0 || e.button === 1) {
+    dragState = { mode: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
+    canvas.classList.add('panning');
+    canvas.setPointerCapture(e.pointerId);
+  }
+});
+
+window.addEventListener('pointermove', e => {
+  if (!dragState) return;
+  if (dragState.mode === 'pan') {
+    view.x = dragState.vx + (e.clientX - dragState.sx);
+    view.y = dragState.vy + (e.clientY - dragState.sy);
+    applyView();
+  } else if (dragState.mode === 'node') {
+    const w = screenToWorld(e.clientX, e.clientY);
+    const n = dragState.node;
+    n.x = Math.round(w.x - dragState.offX); n.y = Math.round(w.y - dragState.offY);
+    n._el.style.left = n.x + 'px'; n._el.style.top = n.y + 'px';
+    updateLinks();
+  } else if (dragState.mode === 'connect') {
+    const from = dragState.from;
+    const a = from.dir === 'out' ? portPos(from.node, 'out', from.index) : portPos(from.node, 'in', from.index);
+    const w = screenToWorld(e.clientX, e.clientY);
+    const t = svg.querySelector('#temp');
+    t.setAttribute('d', from.dir === 'out' ? pathD(a, w) : pathD(w, a));
+  }
+});
+
+window.addEventListener('pointerup', e => {
+  if (!dragState) return;
+  if (dragState.mode === 'connect') {
+    const t = svg.querySelector('#temp'); if (t) t.setAttribute('d', '');
+    const tp = document.elementFromPoint(e.clientX, e.clientY);
+    const port = tp && tp.closest ? tp.closest('.port') : null;
+    if (port) {
+      const f = dragState.from;
+      const to = { node: port.dataset.node, dir: port.dataset.dir, index: +port.dataset.index };
+      if (f.dir !== to.dir && f.node !== to.node) {
+        if (f.dir === 'out') makeLink(f.node, f.index, to.node, to.index);
+        else makeLink(to.node, to.index, f.node, f.index);
+      }
+    }
+  }
+  dragState = null;
+  canvas.classList.remove('panning');
+  schedule();
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const z2 = clamp(view.z * Math.pow(0.999, e.deltaY), 0.25, 2.5);
+  view.x = mx - (mx - view.x) * z2 / view.z;
+  view.y = my - (my - view.y) * z2 / view.z;
+  view.z = z2;
+  applyView();
+}, { passive: false });
+
+$('#zIn').addEventListener('click', () => { view.z = clamp(view.z * 1.25, .25, 2.5); applyView(); });
+$('#zOut').addEventListener('click', () => { view.z = clamp(view.z / 1.25, .25, 2.5); applyView(); });
+$('#zFit').addEventListener('click', () => { view.z = 1; applyView(); });
+
+svg.addEventListener('dblclick', e => {
+  const g = e.target.closest('.link');
+  if (g) { links = links.filter(l => l.id !== g.dataset.id); schedule(); }
+});
+
+window.addEventListener('keydown', e => {
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  if (e.target.closest('input,textarea,select')) return;
+  if (selectedNode) { e.preventDefault(); removeNode(selectedNode); }
+});
+
+function selectNode(id) {
+  selectedNode = id;
+  world.querySelectorAll('.node').forEach(n => n.classList.toggle('selected', n.dataset.id === id));
+}
+
+// ---------- 컨텍스트 메뉴 ----------
+const ctx = $('#ctxmenu');
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  ctx.innerHTML = '';
+  Object.entries(NODE_DEFS).forEach(([type, def]) => {
+    const mi = el('div', 'mi');
+    mi.innerHTML = `<span class="cd" style="background:${def.color}"></span>${def.title}`;
+    mi.addEventListener('click', () => {
+      const w = screenToWorld(e.clientX, e.clientY);
+      addNode(type, Math.round(w.x - 100), Math.round(w.y - 40));
+      hideCtx();
+    });
+    ctx.appendChild(mi);
+  });
+  ctx.style.display = 'block';
+  ctx.style.left = clamp(e.clientX - r.left, 0, r.width - 170) + 'px';
+  ctx.style.top = clamp(e.clientY - r.top, 0, r.height - 230) + 'px';
+});
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#ctxmenu')) hideCtx(); });
+function hideCtx() { ctx.style.display = 'none'; }
+
+// ---------- 이미지 드래그앤드롭 / 붙여넣기 ----------
+canvas.addEventListener('dragover', e => e.preventDefault());
+canvas.addEventListener('drop', async e => {
+  e.preventDefault();
+  const f = [...(e.dataTransfer.files || [])].find(x => /^image\//.test(x.type));
+  if (!f) return;
+  try {
+    const d = await loadImageFile(f);
+    const w = screenToWorld(e.clientX, e.clientY);
+    addNode('image', Math.round(w.x - 110), Math.round(w.y - 100), { src: d.src, name: f.name || 'image', w: d.w, h: d.h });
+    toast('이미지 노드를 추가했어요! 생성 노드(또는 조합 노드)에 연결해 주세요.', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.addEventListener('paste', async e => {
+  if (e.target && e.target.closest && e.target.closest('input,textarea,select')) return;
+  const item = [...((e.clipboardData && e.clipboardData.items) || [])].find(i => i.type && i.type.startsWith('image/'));
+  if (!item) return;
+  const f = item.getAsFile();
+  if (!f) return;
+  e.preventDefault();
+  try {
+    const d = await loadImageFile(f);
+    const wx = Math.round((-view.x + (window.innerWidth - 340) / 2) / view.z);
+    const wy = Math.round((-view.y + (window.innerHeight - 180) / 2) / view.z);
+    addNode('image', wx, wy, { src: d.src, name: f.name || '붙여넣은 이미지', w: d.w, h: d.h });
+    toast('붙여넣은 이미지로 노드를 추가했어요!', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------- 설정 패널 ----------
+const MODELS = [
+  { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare (빠름 · 추천)', sizes: ['auto', '1024x1024', '1536x1024', '1024x1536'], quals: ['auto', 'low', 'medium', 'high'], maxN: 3 },
+  { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst (정밀)', sizes: ['auto', '1024x1024', '1536x1024', '1024x1536'], quals: ['auto', 'low', 'medium', 'high'], maxN: 3 },
+  { id: 'gpt-image-2', label: 'GPT Image 2', sizes: ['auto', '1024x1024', '1536x1024', '1024x1536'], quals: ['auto', 'low', 'medium', 'high'], maxN: 3 },
+  { id: 'gpt-image-1-mini', label: 'GPT Image 1 Mini (12/1 은퇴 예정)', sizes: ['auto', '1024x1024', '1536x1024', '1024x1536'], quals: ['auto', 'low', 'medium', 'high'], maxN: 3 },
+  { id: 'dall-e-3', label: 'DALL·E 3 (레거시)', sizes: ['1024x1024', '1792x1024', '1024x1792'], quals: ['standard', 'hd'], maxN: 1 },
+];
+let settings = { model: 'gpt-image-2.5-flare', size: 'auto', quality: 'auto', n: 1, transparent: false };
+
+// 장당 예상 단가(USD, 2026-11 발표가 기준 · 약산). 1536/1792 계열은 ×1.44 근사.
+const PRICING = {
+  'gpt-image-2.5-flare':   { auto: 0.053, low: 0.006, medium: 0.053, high: 0.211 },
+  'gpt-image-2.5-sunburst':{ auto: 0.053, low: 0.006, medium: 0.053, high: 0.211 },
+  'gpt-image-2':           { auto: 0.053, low: 0.006, medium: 0.053, high: 0.211 },
+  'gpt-image-1-mini':      { auto: 0.011, low: 0.005, medium: 0.011, high: 0.022 },
+  'dall-e-3':              { standard: 0.04, hd: 0.08 },
+};
+function estCost(model, size, quality, n) {
+  const p = PRICING[model]; if (!p) return null;
+  const q = p[quality] !== undefined ? quality : (p.auto !== undefined ? 'auto' : 'standard');
+  const big = size === '1536x1024' || size === '1024x1536' || size === '1792x1024' || size === '1024x1792';
+  return p[q] * (big ? 1.44 : 1) * (n || 1);
+}
+
+function modelDef() { return MODELS.find(m => m.id === settings.model) || MODELS[0]; }
+
+function fillSel(sel, arr, val) {
+  sel.innerHTML = '';
+  arr.forEach(v => { const o = el('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
+  sel.value = arr.includes(val) ? val : arr[0];
+  return sel.value;
+}
+
+function refreshSettingsUI() {
+  if (diagAvailable && !diagAvailable.has(settings.model)) {
+    const first = MODELS.find(x => diagAvailable.has(x.id));
+    if (first) settings.model = first.id;
+  }
+  const m = modelDef();
+  $('#mModel').innerHTML = MODELS.map(x => {
+    const av = !diagAvailable || diagAvailable.has(x.id);
+    return `<option value="${x.id}"${av ? '' : ' disabled'}>${x.label}${diagAvailable ? (av ? ' ✅' : ' · 접근 불가') : ''}</option>`;
+  }).join('');
+  $('#mModel').value = settings.model;
+  settings.size = fillSel($('#mSize'), m.sizes, settings.size);
+  settings.quality = fillSel($('#mQuality'), m.quals, settings.quality);
+  const nOpts = []; for (let i = 1; i <= m.maxN; i++) nOpts.push(i);
+  settings.n = +fillSel($('#mN'), nOpts, settings.n);
+  $('#mTrans').checked = settings.transparent;
+  $('#mTrans').disabled = !settings.model.startsWith('gpt-image');
+  const ec = estCost(settings.model, settings.size, settings.quality, settings.n);
+  $('#costEst').textContent = ec != null ? `💰 이번 생성 예상 비용: 약 $${ec.toFixed(3)} (${settings.n}장)` : '';
+  $('#spendEst').textContent = sessionImages ? `🧾 세션 누적: ${sessionImages}장 · 약 $${sessionSpend.toFixed(3)}` : '';
+}
+
+$('#mModel').addEventListener('change', e => { settings.model = e.target.value; settings.size = modelDef().sizes[0]; settings.quality = modelDef().quals[0]; if (settings.n > modelDef().maxN) settings.n = 1; refreshSettingsUI(); saveSettings(); });
+$('#mSize').addEventListener('change', e => { settings.size = e.target.value; saveSettings(); });
+$('#mQuality').addEventListener('change', e => { settings.quality = e.target.value; saveSettings(); });
+$('#mN').addEventListener('change', e => { settings.n = +e.target.value; saveSettings(); });
+$('#mTrans').addEventListener('change', e => { settings.transparent = e.target.checked; saveSettings(); });
+
+function saveSettings() { localStorage.setItem('gins-settings', JSON.stringify(settings)); }
+function loadSettings() {
+  try { const s = JSON.parse(localStorage.getItem('gins-settings') || '{}'); Object.assign(settings, s); } catch (e) {}
+  refreshSettingsUI();
+}
+
+// API 키
+$('#apiKey').value = localStorage.getItem('gins-apikey') || '';
+$('#saveKey').checked = !!localStorage.getItem('gins-apikey');
+$('#apiKey').addEventListener('input', () => { if ($('#saveKey').checked) localStorage.setItem('gins-apikey', $('#apiKey').value); });
+$('#saveKey').addEventListener('change', () => {
+  if ($('#saveKey').checked) localStorage.setItem('gins-apikey', $('#apiKey').value);
+  else localStorage.removeItem('gins-apikey');
+});
+
+// ---------- 계정 · 요금 진단 ----------
+let diagBusy = false;
+$('#btnDiag').addEventListener('click', diagnose);
+
+function diagLinks() {
+  return `<div class="diag-links"><a href="https://platform.openai.com/settings/organization/billing" target="_blank">💰 결제 / 크레딧</a> · <a href="https://platform.openai.com/settings/organization/general" target="_blank">🏛 조직 인증</a> · <a href="https://platform.openai.com/usage" target="_blank">📊 사용량 대시보드</a></div>`;
+}
+
+async function diagnose() {
+  if (diagBusy) return;
+  const key = $('#apiKey').value.trim();
+  const box = $('#diagResult');
+  const btn = $('#btnDiag');
+  if (!key) { box.className = 'diag-box bad'; box.innerHTML = '❌ 먼저 API 키를 입력한 뒤 진단해 주세요.'; toast('API 키를 먼저 입력해 주세요.', 'err'); return; }
+  diagBusy = true; btn.disabled = true; const oldLabel = btn.textContent; btn.textContent = '⏳ 진단 중…';
+  box.className = 'diag-box'; box.innerHTML = '<span class="note">⏳ 키 검증, 이미지 모델 접근 권한, 요금 정보를 확인하는 중…</span>';
+  try {
+    // 1) 키 유효성 + 모델 접근 권한
+    const res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: 'Bearer ' + key } });
+    if (res.status === 401) {
+      diagAvailable = null; refreshSettingsUI();
+      box.className = 'diag-box bad';
+      box.innerHTML = '❌ <b>API 키가 유효하지 않습니다.</b><br><span class="note">platform.openai.com에서 키를 다시 확인하거나 새로 발급해 붙여넣어 주세요.</span>' + diagLinks();
+      return;
+    }
+    const j = await res.json().catch(() => ({}));
+    const ids = new Set((j.data || []).map(m => m.id));
+    diagAvailable = new Set(MODELS.filter(m => ids.has(m.id)).map(m => m.id));
+    const others = [...ids].filter(id => (id.includes('gpt-image') || id.includes('dall-e')) && !diagAvailable.has(id)).sort();
+    const anyAvail = diagAvailable.size > 0;
+
+    // 2) 최근 30일 사용액 (조직 관리자 키 필요)
+    let costHtml = '';
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const cres = await fetch(`https://api.openai.com/v1/organization/costs?start_time=${nowSec - 30 * 86400}&end_time=${nowSec}&bucket=1d`, { headers: { Authorization: 'Bearer ' + key } });
+      if (cres.ok) {
+        const cj = await cres.json();
+        let sum = 0; (cj.data || []).forEach(d => (d.results || []).forEach(r => sum += (r.amount && r.amount.value) || 0));
+        costHtml = `<div class="ok">✅ 최근 30일 API 사용액: <b>$${sum.toFixed(2)}</b></div><div class="note">잔여 크레딧은 결제 페이지의 Grant/월 크레딧 항목에서 확인할 수 있어요.</div>`;
+      } else if (cres.status === 403) {
+        costHtml = `<div class="warn">⚠️ 일반 API 키로는 요금 조회가 불가합니다 (조직 관리자 키 필요).</div><div class="note">💡 ChatGPT Pro/Business 구독자는 월 최대 $500 API 크레딧을 받을 수 있어요. <a href="https://developers.openai.com/api/docs/guides/chatgpt-api-credits" target="_blank">크레딧 수령 방법</a> · 결제 페이지에서 수령 여부를 확인하세요.</div>`;
+      } else {
+        costHtml = `<div class="warn">⚠️ 요금 조회 실패 (HTTP ${cres.status})</div>`;
+      }
+    } catch (e) { costHtml = '<div class="warn">⚠️ 요금 조회 중 네트워크 오류가 발생했습니다.</div>'; }
+
+    // 3) 모델 판단 + 자동 선택
+    let html = '';
+    if (anyAvail) {
+      const changed = !diagAvailable.has(settings.model);
+      if (changed) { settings.model = [...diagAvailable][0]; settings.size = modelDef().sizes[0]; settings.quality = modelDef().quals[0]; }
+      refreshSettingsUI(); saveSettings();
+      html += '<div class="ok">✅ 키 유효 · 이미지 모델 사용 가능</div><div class="mrow"><b>모델별 접근 권한</b></div>';
+      MODELS.forEach(m => { html += `<div class="mrow">${diagAvailable.has(m.id) ? '✅' : '·'} ${m.label}${diagAvailable.has(m.id) ? '' : ' — 이 키로 접근 불가'}</div>`; });
+      if (others.length) html += `<div class="mrow">🔎 기타 발견: ${others.slice(0, 4).join(', ')}${others.length > 4 ? ' 외 ' + (others.length - 4) + '개' : ''}</div>`;
+      html += costHtml;
+      box.className = 'diag-box ok';
+      toast(changed ? `진단 완료! 사용 가능한 ${settings.model}(으)로 자동 전환했어요.` : '진단 완료! 모든 준비가 되어 있어요.', 'ok');
+    } else {
+      diagAvailable = null; refreshSettingsUI();
+      const orgOk = ids.size > 0;
+      html += orgOk
+        ? '<div class="bad">❌ 키는 유효하지만 이미지 모델 접근 권한이 없습니다. <b>조직 인증(Organization verification)</b>이 필요할 수 있어요.</div>'
+        : '<div class="bad">❌ 모델 목록을 가져올 수 없습니다. 네트워크와 키 권한을 확인해 주세요.</div>';
+      html += costHtml;
+      box.className = 'diag-box bad';
+      toast('이미지 모델 접근이 막혀 있어요. 조직 인증을 확인해 주세요.', 'err');
+    }
+    box.innerHTML = html + diagLinks();
+  } catch (err) {
+    diagAvailable = null; refreshSettingsUI();
+    box.className = 'diag-box bad';
+    box.innerHTML = '❌ 진단 실패: ' + err.message + diagLinks();
+  } finally {
+    diagBusy = false; btn.disabled = false; btn.textContent = oldLabel;
+  }
+}
+
+// ---------- 생성 실행 ----------
+async function runGenerate(node) {
+  const key = $('#apiKey').value.trim();
+  if (!key) { toast('먼저 우측 패널에 OpenAI API 키를 입력해 주세요.', 'err'); return; }
+  const prompt = genPrompt(node);
+  if (!prompt.trim()) { toast('프롬프트가 비어 있어요. 텍스트 노드를 연결하고 내용을 입력해 주세요.', 'err'); return; }
+  const imgs = collectImages(node).slice(0, 10);
+  if (imgs.length && !settings.model.startsWith('gpt-image')) {
+    toast('DALL·E 3는 이미지 입력(편집)을 지원하지 않아요. 모델을 GPT Image 계열로 바꿔 주세요.', 'err');
+    return;
+  }
+
+  const els = node._els;
+  els.go.disabled = true; els.go.textContent = '생성 중…'; els.dl.style.display = 'none'; els.cx.style.display = '';
+  els.st.className = 'g-status run';
+  const ctrl = new AbortController(); node._ctrl = ctrl;
+  const t0 = Date.now();
+  const refNote = imgs.length ? ` · 🖼 참조 ${imgs.length}장` : '';
+  const timer = setInterval(() => { els.st.textContent = `⏳ 생성 중… ${Math.round((Date.now() - t0) / 1000)}초${refNote} (고품질은 30~90초 걸릴 수 있어요)`; }, 500);
+  els.st.textContent = '⏳ 생성 중…';
+
+  try {
+    let res;
+    if (imgs.length) {
+      // 이미지 편집 API — 참조 이미지 첨부
+      const fd = new FormData();
+      fd.append('model', settings.model);
+      fd.append('prompt', prompt);
+      if (settings.size !== 'auto') fd.append('size', settings.size);
+      if (settings.quality !== 'auto') fd.append('quality', settings.quality);
+      fd.append('n', String(settings.n));
+      if (settings.transparent) fd.append('background', 'transparent');
+      imgs.forEach((im, i) => {
+        const blob = dataUrlToBlob(im.props.src);
+        const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+        fd.append('image[]', blob, `ref-${i + 1}.${ext}`);
+      });
+      res = await fetch('https://api.openai.com/v1/images/edits', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + key },
+        body: fd,
+        signal: ctrl.signal,
+      });
+    } else {
+      const body = { model: settings.model, prompt };
+      if (settings.model.startsWith('gpt-image')) {
+        body.size = settings.size; body.quality = settings.quality; body.n = settings.n;
+        if (settings.transparent) body.background = 'transparent';
+      } else {
+        body.size = settings.size; body.n = 1;
+        body.quality = settings.quality === 'hd' ? 'hd' : 'standard';
+        body.response_format = 'b64_json';
+      }
+      res = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+    }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((j.error && j.error.message) || ('HTTP ' + res.status));
+    const b64 = j.data && j.data[0] && j.data[0].b64_json;
+    if (!b64) throw new Error('응답에 이미지가 없습니다.');
+    const rem = res.headers.get('x-ratelimit-remaining-requests');
+    const got = (j.data || []).length || 1;
+    const est = estCost(settings.model, settings.size, settings.quality, settings.n);
+    const paid = est != null ? est * (got / (settings.n || 1)) : null;
+    if (paid != null) sessionSpend += paid;
+    sessionImages += got;
+
+    const url = 'data:image/png;base64,' + b64;
+    node.props.img = url;
+    els.img.src = url; els.gi.style.display = 'block';
+    els.st.className = 'g-status ok';
+    let doneMsg = `✅ 완료 (${((Date.now() - t0) / 1000).toFixed(1)}초 · ${settings.model}`;
+    if (paid != null) doneMsg += ` · 예상 $${paid.toFixed(3)}`;
+    doneMsg += ')';
+    if (rem) doneMsg += ` · 잔여 요청 ${rem}`;
+    els.st.textContent = doneMsg;
+    els.dl.style.display = '';
+    history.unshift({ ts: Date.now(), prompt, model: settings.model, size: settings.size, url, cost: paid });
+    if (history.length > 30) history.pop();
+    $('#histCount').textContent = history.length;
+    refreshSettingsUI();
+    toast('이미지 생성 완료! 🎉', 'ok');
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      els.st.className = 'g-status'; els.st.textContent = '⏹ 취소됨';
+    } else {
+      els.st.className = 'g-status err';
+      els.st.textContent = '❌ ' + err.message;
+      toast('생성 실패: ' + err.message, 'err');
+    }
+  } finally {
+    clearInterval(timer);
+    node._ctrl = null;
+    els.go.disabled = false; els.go.textContent = '⚡ 생성'; els.cx.style.display = 'none';
+  }
+}
+
+function downloadDataUrl(url, name) {
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+// ---------- 토스트 / 모달 ----------
+let toastTimer;
+function toast(msg, type = '') {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = '', 3200);
+}
+
+function openModal(html) { $('#modalBox').innerHTML = `<button class="close">✕</button>` + html; $('#modal').classList.add('show'); }
+$('#modal').addEventListener('click', e => {
+  if (e.target.id === 'modal' || e.target.closest('.close')) $('#modal').classList.remove('show');
+});
+$('#modalBox').addEventListener('click', e => {
+  if (e.target.closest('.close')) $('#modal').classList.remove('show');
+});
+function openImageModal(url) { openModal(`<img class="big" src="${url}">`); }
+
+$('#btnHelp').addEventListener('click', () => {
+  openModal(`
+    <h2>❓ 사용 방법</h2>
+    <div class="help">
+      <b>1. API 키 입력</b> — <a href="https://platform.openai.com/api-keys" target="_blank" style="color:#38bdf8">platform.openai.com/api-keys</a> 에서 발급 후 우측 패널에 붙여넣으세요. 이미지 생성은 유료입니다.<br><br>
+      <b>2. 노드 연결</b> — 캔버스 <span class="kb">우클릭</span>으로 노드 추가, 노드 가장자리의 <b>점(포트)</b>을 드래그해 다른 노드의 점에 놓으면 연결됩니다. 예: 텍스트 → 조합, 스타일 → 조합, 조합 → 생성.<br><br>
+      <b>3. 생성</b> — 생성 노드의 <b>⚡ 생성</b> 버튼을 누르면 연결된 프롬프트가 조합되어 GPT 이미지 API로 전송됩니다. 결과는 노드 안에 표시되고 클릭하면 크게 볼 수 있어요.<br><br>
+      <b>4. 참조 이미지</b> — <b>🖼 이미지 노드</b>(우클릭 메뉴)에 사진을 올리세요. 클릭 업로드 · 캔버스에 드래그 · <span class="kb">Ctrl+V</span> 모두 지원됩니다. 역할(참조 / 인물 유지 / 부분 편집)을 고르고 생성 노드나 조합 노드에 연결하면, 생성 시 <b>이미지 편집 API</b>로 함께 전송돼요 (DALL·E 3는 이미지 입력 불가).<br><br>
+      <b>5. 조작</b> — 빈 캔버스 <span class="kb">드래그</span> = 이동 · <span class="kb">휠</span> = 확대/축소 · 노드 선택 후 <span class="kb">Delete</span> = 삭제 · 연결선 <span class="kb">더블클릭</span> = 연결 해제.<br><br>
+      <b>6. 저장</b> — 워크플로는 자동 저장되며, 상단 <b>💾 저장</b>으로 JSON 파일 내보내기/불러오기도 가능합니다. 업로드 이미지가 지나치게 크면 자동 저장에서만 제외돼요.
+      <br><br>
+      <b>7. 계정 진단</b> — 우측 <b>🔎 계정 · 요금 진단</b> 버튼으로 키 유효성, 이미지 모델 접근 권한, 최근 30일 사용액을 확인하고 사용 가능한 모델을 자동으로 선택하세요. 생성 전마다 예상 비용과 세션 누적 지출이 표시됩니다.
+    </div>`);
+});
+
+$('#btnHist').addEventListener('click', () => {
+  if (!history.length) { toast('아직 생성 기록이 없어요.'); return; }
+  const cards = history.map((h, i) => `
+    <div class="hcard">
+      <img src="${h.url}" data-i="${i}">
+      <div class="pmeta">${h.model} · ${h.size}${h.cost != null ? ' · 약 $' + h.cost.toFixed(3) : ''}<br>${h.prompt.slice(0, 90)}</div>
+      <button data-dl="${i}">⬇ PNG 다운로드</button>
+    </div>`).join('');
+  openModal(`<h2>🖼 생성 기록 (이 세션)</h2><div class="hgrid">${cards}</div>`);
+});
+$('#modalBox').addEventListener('click', e => {
+  const im = e.target.closest('.hcard img');
+  if (im) { openImageModal(history[+im.dataset.i].url); return; }
+  const db = e.target.closest('[data-dl]');
+  if (db) { const h = history[+db.dataset.dl]; downloadDataUrl(h.url, `gpt-image-${h.ts}.png`); }
+});
+
+// ---------- 저장 / 불러오기 ----------
+function cleanProps(n) {
+  const p = {};
+  Object.entries(n.props).forEach(([k, v]) => {
+    if (!k.startsWith('_') && k !== 'img') p[k] = v;
+  });
+  return p;
+}
+
+function saveSchedule() {
+  const data = {
+    version: 1, nextId, view,
+    nodes: nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, props: cleanProps(n) })),
+    links,
+  };
+  try {
+    localStorage.setItem('gins-workflow', JSON.stringify(data));
+  } catch (e) {
+    // 용량 초과 시 업로드 이미지(src)만 제외하고 저장
+    try {
+      const slim = JSON.parse(JSON.stringify(data));
+      slim.nodes.forEach(nd => { if (nd.props && nd.props.src) delete nd.props.src; });
+      localStorage.setItem('gins-workflow', JSON.stringify(slim));
+      if (!saveSchedule._warned) {
+        saveSchedule._warned = true;
+        toast('업로드한 이미지가 커서 자동 저장에서는 제외했어요. 새로고침하면 다시 추가해 주세요.', 'err');
+      }
+    } catch (e2) { /* 저장 불가 환경 */ }
+  }
+}
+
+function schedule() {
+  updateLinks();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveSchedule, 400);
+}
+
+function clearAll() {
+  nodes = []; links = []; nextId = 1; selectedNode = null;
+  world.querySelectorAll('.node').forEach(n => n.remove());
+}
+
+function loadWorkflow(data) {
+  clearAll();
+  nextId = data.nextId || 1;
+  view = data.view || { x: 40, y: 30, z: 1 };
+  (data.nodes || []).forEach(n => {
+    if (!NODE_DEFS[n.type]) return;
+    const node = { id: n.id, type: n.type, x: n.x, y: n.y, props: structuredClone(NODE_DEFS[n.type].defaults) };
+    Object.assign(node.props, n.props || {});
+    nodes.push(node); renderNode(node);
+  });
+  links = (data.links || []).filter(l => byId(l.from.node) && byId(l.to.node));
+  applyView(); saveSchedule();
+}
+
+$('#btnSave').addEventListener('click', () => {
+  const data = { version: 1, nextId, view, nodes: nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, props: cleanProps(n) })), links };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  downloadDataUrl(URL.createObjectURL(blob), `node-workflow-${new Date().toISOString().slice(0, 10)}.json`);
+  toast('워크플로를 저장했어요.', 'ok');
+});
+
+$('#btnLoad').addEventListener('click', () => $('#fileInput').click());
+$('#fileInput').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try { loadWorkflow(JSON.parse(r.result)); toast('워크플로를 불러왔어요.', 'ok'); }
+    catch (err) { toast('파일을 읽을 수 없어요: ' + err.message, 'err'); }
+  };
+  r.readAsText(f);
+  e.target.value = '';
+});
+
+$('#btnReset').addEventListener('click', () => {
+  if (confirm('모든 노드를 지우고 기본 워크플로로 초기화할까요?')) { defaultWorkflow(); toast('초기화했어요.'); }
+});
+
+// ---------- 기본 / 예시 워크플로 ----------
+function buildWorkflow(text, styleKey) {
+  clearAll();
+  const t = addNode('text', 60, 80, { text }, true);
+  const s = addNode('style', 60, 330, { style: styleKey }, true);
+  const c = addNode('combine', 400, 170, {}, true);
+  const g = addNode('generate', 730, 120, {}, true);
+  makeLink(t.id, 0, c.id, 0); makeLink(s.id, 0, c.id, 1); makeLink(c.id, 0, g.id, 0);
+  view = { x: 40, y: 30, z: 1 };
+  applyView(); saveSchedule();
+}
+
+function defaultWorkflow() {
+  buildWorkflow('네온 간판이 반짝이는 비 내리는 미래 도시 골목, 젖은 아스팔트에 반사되는 불빛', '시네마틱');
+}
+
+const PRESETS = {
+  portrait: () => buildWorkflow('노을이 지는 옥상 난간에 기대어 서 있는 젊은 여성, 바람에 날리는 머리칼, 멀리 보이는 도시 스카이라인', '사진 (포토리얼)'),
+  product: () => buildWorkflow('미래적인 무선 이어폰 한 쌍이 공중에 떠 있는 제품 광고 컷, 은은한 그림자', '3D 렌더'),
+  fantasy: () => buildWorkflow('거대한 수정 숲과 공중에 떠 있는 섬들, 안개가 깔린 새벽의 판타지 세계', '판타지 아트'),
+};
+$('#presetSel').addEventListener('change', e => {
+  if (PRESETS[e.target.value]) { PRESETS[e.target.value](); toast('예시 워크플로를 불러왔어요.', 'ok'); }
+  e.target.value = '';
+});
+
+// ---------- 시작 ----------
+loadSettings();
+try {
+  const saved = localStorage.getItem('gins-workflow');
+  if (saved) loadWorkflow(JSON.parse(saved));
+  else defaultWorkflow();
+} catch (e) { defaultWorkflow(); }
+applyView();
+</script>
+</body>
+</html>
